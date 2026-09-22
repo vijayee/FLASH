@@ -1,13 +1,13 @@
 #cloud-config
 # Azure VM bootstrap for the FLASH geo e2e suite (Task 8).
 #
-# This file is a TEMPLATE: provision.sh substitutes __FLASH_ROLE__ ("peer"
-# or "lab") and passes the result to `az vm create --custom-data`. The two
-# roles differ only in the Flutter toolchain (lab VM only — the desktop
+# This file is a TEMPLATE: provision.sh substitutes __FLASH_ROLE__ ("eer"
+# or "ab" and passes the result to `az vm create --custom-data`. The two
+# roles differ only in the Flutter toolchain (lab VM only - the desktop
 # peer is built ON the lab VM; ~10GB, fine on the 64GB os disk).
 #
 # What every VM gets:
-#   - Node 20 (nodesource) at /usr/bin/node — signaling server + serve.mjs
+#   - Node 20 (nodesource) at /usr/bin/node - signaling server + serve.mjs
 #     + cdp-relay.mjs all run on it.
 #   - Playwright's Chromium under /opt/ms-playwright (root-installed with
 #     --with-deps so the apt dependency set lands too; azureuser only needs
@@ -21,11 +21,11 @@
 #                               DART_ROOT mode)
 #     Both bind 0.0.0.0 so any VM (and the orchestrator) can load a demo
 #     from any VM's origin. Port 80 needs CAP_NET_BIND_SERVICE for the
-#     non-root unit — ambient capabilities handle it.
+#     non-root unit - ambient capabilities handle it.
 #
 # Deliberately NOT here: Chromium instance management. Each VM's headless
 # Chromium is launched by the orchestrator over SSH (azure/agent.sh) so its
-# lifecycle tracks a test run — systemd is reserved for the long-lived
+# lifecycle tracks a test run - systemd is reserved for the long-lived
 # services (signaling on the lab VM, the two demo servers everywhere).
 #
 # NOTE on Ubuntu 24.04 + chromium: apt's chromium is a snap (bad in
@@ -55,7 +55,7 @@ write_files:
     content: |
       # Flutter SDK (lab VM only; the dir is absent on peer VMs).
       if [ -d /opt/flutter/bin ]; then
-        export PATH="/opt/flutter/bin:$PATH"
+        export PATH="opt/flutter/bin:$PATH"
       fi
 
   # JS demo (serve.mjs default mode) on port 80. AmbientCapabilities lets
@@ -108,7 +108,7 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  # Node 20 (nodesource). /usr/bin/node afterwards — referenced by every
+  # Node 20 (nodesource). /usr/bin/node afterwards - referenced by every
   # systemd unit and by agent.sh.
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   - apt-get install -y nodejs
@@ -120,9 +120,9 @@ runcmd:
       npx -y playwright@1.55.0 install --with-deps chromium
   # Lab-only: Flutter SDK + Linux desktop toolchain (clang/cmake/ninja/
   # pkg-config/libgtk-3-dev) so the desktop peer is built ON the lab VM.
-  # ~10GB over the base image — the VM is created with a 64GB os disk.
+  # ~10GB over the base image - the VM is created with a 64GB os disk.
   - |
-    if [ "$(cat /etc/flash/role)" = "lab" ]; then
+    if [ "(cat /etc/flash/role)"= "ab"]; then
       apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
       git clone --depth 1 --branch stable \
         https://github.com/flutter/flutter.git /opt/flutter
