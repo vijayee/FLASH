@@ -14,4 +14,4 @@ runs/
 .idea/
 .claude/
 *.
-docs/initial-chat.json
+docs/initial-chat.jsontest-results/
