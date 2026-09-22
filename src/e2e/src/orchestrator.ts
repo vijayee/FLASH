@@ -30,6 +30,8 @@ export interface PeerState {
   isSupernode: boolean;
   clusterLeader: string | null;
   activeStreams: string[];
+  /** Peers a supernode told us to expect relayed streams from (spec §6.2). */
+  forwardedStreams?: string[];
   wireLog?: WireLogEntry[];
   initialized?: boolean;
   error?: string | null;
@@ -41,6 +43,20 @@ declare global {
       peerId: () => string | null;
       connect: (url: string) => void;
       state: () => PeerState | null;
+      /**
+       * Task 4 affordance: drives the library's electSupernode over the
+       * current cluster (self + all known peers). Resolves with the
+       * findCentralLeader result ({leaderId, avgRtt, hopCount}); rejects on
+       * the library's query timeout.
+       */
+      elect?: () => Promise<{
+        leaderId?: string;
+        avgRtt?: number;
+        hopCount?: number;
+        error?: string;
+      }>;
+      /** Task 4 affordance: node.closeStream (spec §7.1 media_close). */
+      closeStream?: (peerId: string) => void;
     };
     __meridianState?: () => string;
   }

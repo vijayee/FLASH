@@ -2,6 +2,10 @@ import { MeridianNode, MERIDIAN_CONFIG } from '../../src/index.js';
 // Imported directly (not via index.js) only to wrap connect() for the
 // optional ?wirelog=1 e2e recording below; no library behavior changes.
 import { SignalingClient } from '../../src/signaling-client.js';
+// Imported directly (not via index.js) only for the __meridian.elect() e2e
+// driving affordance below: the library's public election entry point, run
+// over the current cluster; no library behavior changes.
+import { electSupernode } from '../../src/raft.js';
 
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
@@ -18,6 +22,7 @@ const renderedStreams = new Map(); // peerId -> rendered <video>
 // to the library defaults.
 const urlParams = new window.URLSearchParams(window.location.search);
 const gossipMsParam = Number(urlParams.get('gossipMs'));
+const mediaSrcParam = urlParams.get('mediaSrc');
 const stunParam = urlParams.get('stun');
 const stunOverride = stunParam
   ? stunParam.split(',').map((s) => s.trim()).filter(Boolean)
@@ -191,20 +196,79 @@ function uuidV4() {
   );
 }
 
+// ?mediaSrc=<url> (Task 4, example-only): when present, the Connect flow
+// uses a looping <video> playing the file as the uplink (captureStream())
+// instead of getUserMedia — e2e's deterministic media source. The element
+// must be RENDERED for the browser to decode/play it (a display:none video
+// never starts in headless Chromium), so the demo's own local-preview slot
+// #local (given `loop` in index.html) is reused. Falls back to getUserMedia
+// (fake device under the e2e launch flags) if the file never plays.
+async function startFileUplink(src) {
+  const video = $('local');
+  video.src = src;
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('mediaSrc video did not start within 20s')),
+        20_000
+      );
+      video.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timer);
+          reject(
+            new Error(
+              'mediaSrc video failed: ' +
+                (video.error ? video.error.message : 'unknown')
+            )
+          );
+        },
+        { once: true }
+      );
+      video.addEventListener(
+        'playing',
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true }
+      );
+      video.play().catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  } catch (err) {
+    video.removeAttribute('src');
+    throw err;
+  }
+  return video.captureStream();
+}
+
 async function connect() {
   const url = $('signal-url').value || 'ws://localhost:8080';
   const peerId = uuidV4();
   $('peer-id').textContent = peerId;
 
-  let uplink;
-  try {
-    uplink = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true
-    });
-    $('local').srcObject = uplink;
-  } catch (err) {
-    log(`no local media (${err.name}); joining without an uplink`);
+  let uplink = null;
+  if (mediaSrcParam) {
+    try {
+      uplink = await startFileUplink(mediaSrcParam);
+      log(`uplink: looping ${mediaSrcParam}`);
+    } catch (err) {
+      log(`mediaSrc uplink failed (${err.message}); falling back`);
+    }
+  }
+  if (!uplink) {
+    try {
+      uplink = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      $('local').srcObject = uplink;
+    } catch (err) {
+      log(`no local media (${err.name}); joining without an uplink`);
+    }
   }
 
   node = new MeridianNode(peerId, null, DEMO_CONFIG);
@@ -231,6 +295,8 @@ function disconnect() {
   for (const video of renderedStreams.values()) video.remove();
   renderedStreams.clear();
   $('local').srcObject = null;
+  // A ?mediaSrc= uplink rides the same slot; stop its file playback too.
+  $('local').removeAttribute('src');
   $('peer-id').textContent = '(not connected)';
   $('status').textContent = 'idle';
   setConnected(false);
@@ -317,7 +383,26 @@ window.__meridian = {
       isSupernode: node.isSupernode,
       clusterLeader: node.clusterLeader,
       activeStreams: [...node.activeStreams.keys()],
+      forwardedStreams: [...node._forwardedStreams],
       wireLog: wireLogEntries,
     };
+  },
+  /**
+   * e2e driving affordance (Task 4): runs the library's real supernode
+   * election (electSupernode -> findCentralLeader, spec §5.1) over the
+   * current cluster. Candidates include ourselves so every candidate
+   * measures the SAME target set (self-measures as 0): the spec §3.7
+   * average-RTT metric then ranks candidates fairly and the winner is
+   * deterministic. The library's own _maybeElectSupernode gate (knownPeers
+   * >= 5, spec §9) stays untouched — small e2e overlays trigger here.
+   */
+  elect: () => {
+    if (!node) throw new Error('not connected');
+    return electSupernode(node, [node.peerId, ...node.knownPeers.keys()]);
+  },
+  /** e2e driving affordance (Task 4): node.closeStream (spec §7.1). */
+  closeStream: (peerId) => {
+    if (!node) throw new Error('not connected');
+    return node.closeStream(peerId);
   },
 };

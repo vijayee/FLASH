@@ -13,6 +13,9 @@ const demoRoot = join(repoRoot, 'src', 'js', 'examples', 'browser');
 // The demo imports the library via ../../src/index.js, which the browser
 // resolves to /src/... at the origin root: fall back to the package root.
 const libRoot = join(repoRoot, 'src', 'js');
+// Task 4 media fixture (the looping ?mediaSrc= uplink file), served under
+// /fixtures/... from the e2e package's fixtures dir.
+const fixturesRoot = join(repoRoot, 'src', 'e2e', 'fixtures');
 
 const port = Number(process.env.PORT) || 8090;
 const types = {
@@ -24,6 +27,7 @@ const types = {
   '.svg': 'image/svg+xml',
   '.wasm': 'application/wasm',
   '.txt': 'text/plain; charset=utf-8',
+  '.mp4': 'video/mp4',
 };
 
 // Browser-supplied URLs are untrusted: resolve the request path inside each
@@ -52,9 +56,23 @@ async function serve(req, res) {
     return;
   }
   // Demo assets first (index.html, main.js); /src/... falls through to the
-  // library package root.
-  for (const base of [demoRoot, libRoot]) {
-    const filePath = isInside(base, pathname);
+  // library package root; /fixtures/... to the e2e media fixture dir (the
+  // prefix is stripped before the containment check, so the traversal
+  // hygiene below still applies to whatever follows it).
+  const bases = [
+    { root: demoRoot, prefix: '' },
+    { root: libRoot, prefix: '' },
+    { root: fixturesRoot, prefix: '/fixtures/' },
+  ];
+  for (const { root, prefix } of bases) {
+    let rel = pathname;
+    if (prefix) {
+      if (!pathname.startsWith(prefix)) continue;
+      // Keep the leading slash: isInside resolves './<rel>' against the
+      // base, so the remainder must stay root-relative.
+      rel = '/' + pathname.slice(prefix.length);
+    }
+    const filePath = isInside(root, rel);
     if (!filePath) continue;
     try {
       const body = await readFile(filePath);
