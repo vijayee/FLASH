@@ -12,6 +12,11 @@ dependencies:
     path: ..
   flutter_webrtc: ^0.12.0
   uuid: ^4.0.0
+  # Task 6 (?mediaSrc= web uplink): MediaStreamWeb (dart_webrtc) wraps the
+  # <video>.captureStream() MediaStream (web) that the example feeds the
+  # node as its initialize() uplink.
+  dart_webrtc: ^1.8.0
+  web: ^1.1.0
 
 dev_dependencies:
   flutter_test:

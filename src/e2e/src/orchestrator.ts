@@ -35,6 +35,18 @@ export interface PeerState {
   wireLog?: WireLogEntry[];
   initialized?: boolean;
   error?: string | null;
+  /**
+   * Task 6 (Dart example only): the last `__meridianAction('find', target)`
+   * outcome, observed by e2e through the state snapshot.
+   */
+  lastFindResult?: {
+    target: string;
+    closestPeerId?: string | null;
+    closestRttMs?: number | null;
+    error?: string;
+  };
+  /** Task 6 (Dart example only): the last `__meridianAction('stream', ...)`. */
+  lastStreamResult?: { peerId: string; ok: boolean; error?: string };
 }
 
 declare global {
@@ -306,15 +318,29 @@ export function startMiniStun(
  * (`/` -> the demo, `/src/...` -> the library package root). `host` must
  * be 0.0.0.0 when netns peers (Task 3) must reach it: they dial the
  * server through their slirp gateway, which lands on the host's loopback.
+ *
+ * `dartRoot` (Task 6) switches the server into dart-web mode: it serves the
+ * staged Flutter web bundle (`src/e2e/scripts/build-dart-web.sh` ->
+ * src/e2e/build/dart-web) at `/` plus the shared `/fixtures/` base. Run it
+ * on its own port (8091) so the JS demo instance stays untouched.
  */
 export function startServe(
-  { host = '127.0.0.1', port = 8090 }: { host?: string; port?: number } = {},
+  {
+    host = '127.0.0.1',
+    port = 8090,
+    dartRoot,
+  }: { host?: string; port?: number; dartRoot?: string } = {},
 ): DemoServer {
   const script = fileURLToPath(
     new URL('../scripts/serve.mjs', import.meta.url),
   );
   const proc = spawn(process.execPath, [script], {
-    env: { ...process.env, HOST: host, PORT: String(port) },
+    env: {
+      ...process.env,
+      HOST: host,
+      PORT: String(port),
+      ...(dartRoot ? { DART_ROOT: dartRoot } : {}),
+    },
     stdio: 'ignore',
   });
   return { proc, ready: waitForPort(proc, port), stop: () => proc.kill() };

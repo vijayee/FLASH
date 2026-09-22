@@ -16,6 +16,15 @@ const libRoot = join(repoRoot, 'src', 'js');
 // Task 4 media fixture (the looping ?mediaSrc= uplink file), served under
 // /fixtures/... from the e2e package's fixtures dir.
 const fixturesRoot = join(repoRoot, 'src', 'e2e', 'fixtures');
+// Task 6: DART_ROOT switches this server into dart-web mode — it serves the
+// STAGED Flutter web bundle (src/e2e/scripts/build-dart-web.sh copies
+// src/dart/example/build/web to src/e2e/build/dart-web) at / plus the same
+// /fixtures/ base (the Dart demo's ?mediaSrc= uplink loads the fixture from
+// its own origin, which captureStream() requires). The default (JS demo)
+// mode is unchanged.
+const dartRoot = process.env.DART_ROOT
+  ? resolve(process.env.DART_ROOT)
+  : null;
 
 const port = Number(process.env.PORT) || 8090;
 const types = {
@@ -58,12 +67,18 @@ async function serve(req, res) {
   // Demo assets first (index.html, main.js); /src/... falls through to the
   // library package root; /fixtures/... to the e2e media fixture dir (the
   // prefix is stripped before the containment check, so the traversal
-  // hygiene below still applies to whatever follows it).
-  const bases = [
-    { root: demoRoot, prefix: '' },
-    { root: libRoot, prefix: '' },
-    { root: fixturesRoot, prefix: '/fixtures/' },
-  ];
+  // hygiene below still applies to whatever follows it). DART_ROOT mode
+  // serves the staged Flutter bundle at / instead of the JS demo.
+  const bases = dartRoot
+    ? [
+        { root: dartRoot, prefix: '' },
+        { root: fixturesRoot, prefix: '/fixtures/' },
+      ]
+    : [
+        { root: demoRoot, prefix: '' },
+        { root: libRoot, prefix: '' },
+        { root: fixturesRoot, prefix: '/fixtures/' },
+      ];
   for (const { root, prefix } of bases) {
     let rel = pathname;
     if (prefix) {
@@ -95,6 +110,8 @@ const host = process.env.HOST || '127.0.0.1';
 
 createServer(serve).listen(port, host, () => {
   console.log(
-    `e2e demo server: http://${host}:${port} (signaling ws://localhost:8080)`,
+    dartRoot
+      ? `e2e dart-web server: http://${host}:${port} (root: ${dartRoot})`
+      : `e2e demo server: http://${host}:${port} (signaling ws://localhost:8080)`,
   );
 });

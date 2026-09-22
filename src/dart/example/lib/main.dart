@@ -9,6 +9,9 @@ import 'package:uuid/uuid.dart';
 // e2e read seam (Task 1): `window.__meridianState()` on web builds; native
 // targets (desktop peer, Task 7) get a no-op stub.
 import 'web_hook_stub.dart' if (dart.library.js_interop) 'web_hook_web.dart';
+// e2e drive seam + `?mediaSrc=` uplink (Task 6): `window.__meridianAction()`
+// and the looping-file uplink on web builds; native targets get stubs.
+import 'uplink_stub.dart' if (dart.library.js_interop) 'uplink_web.dart';
 
 void main() => runApp(const MeridianExampleApp());
 
@@ -32,7 +35,7 @@ class MeridianDemoPage extends StatefulWidget {
 }
 
 class _MeridianDemoPageState extends State<MeridianDemoPage> {
-  static const _signalingUrl = 'ws://localhost:8080';
+  static const _defaultSignalingUrl = 'ws://localhost:8080';
   static const _maxLogEntries = 200;
   static const _maxWireLogEntries = 2000;
 
@@ -49,7 +52,56 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   // directions; the Dart side's send path needs a library seam (Task 6).
   final _wireLogEntries = <Map<String, dynamic>>[];
   final _wrappedChannels = <rtc.RTCDataChannel>{};
-  late final bool _wireLogEnabled = Uri.base.queryParameters['wirelog'] == '1';
+  late final bool _wireLogEnabled = _e2eParams['wirelog'] == '1';
+
+  // --- e2e URL-param overrides (Task 6) -----------------------------------
+  // The Dart twins of the JS demo's parsing (examples/browser/main.js):
+  //   ?signaling=<url> bootstrap signaling URL (the Dart example has no
+  //     Connect flow to drive — it auto-connects — so e2e points it at the
+  //     rig's server through this param),
+  //   ?stun=a,b   overrides MeridianConfig.stunServers,
+  //   ?gossipMs=<n> (n > 0) overrides MeridianConfig.gossipPeriod,
+  //   ?mediaSrc=<url> swaps the getUserMedia uplink for a looping <video>
+  //     playing the file (captureStream) — see uplink_web.dart.
+  // Parsed only on http(s) bases: Uri.base on native targets is not a
+  // browser URL, and the desktop peer (Task 7) must keep its defaults.
+  static Map<String, String> get _e2eParams {
+    final base = Uri.base;
+    return (base.scheme == 'http' || base.scheme == 'https')
+        ? base.queryParameters
+        : const <String, String>{};
+  }
+
+  late final String _signalingUrl =
+      _e2eParams['signaling'] ?? _defaultSignalingUrl;
+  late final String? _mediaSrc = _e2eParams['mediaSrc'];
+  late final MeridianConfig _config = _configFromParams();
+
+  MeridianConfig _configFromParams() {
+    const base = MeridianConfig();
+    final stun = _e2eParams['stun'];
+    final gossipMs = int.tryParse(_e2eParams['gossipMs'] ?? '');
+    if (stun == null && gossipMs == null) return base;
+    return MeridianConfig(
+      stunServers: stun == null
+          ? base.stunServers
+          : stun
+              .split(',')
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toList(),
+      gossipPeriod: (gossipMs == null || gossipMs <= 0)
+          ? base.gossipPeriod
+          : Duration(milliseconds: gossipMs),
+    );
+  }
+
+  // --- e2e action results (Task 6) -----------------------------------------
+  // The last find/stream outcome, surfaced through window.__meridianState()
+  // so Playwright can await the cross-language query/media handshakes the
+  // __meridianAction seam started (the Dart side renders no DOM log).
+  Map<String, Object?>? _lastFindResult;
+  Map<String, Object?>? _lastStreamResult;
 
   MeridianNode? _node;
   Timer? _statusTimer;
@@ -62,21 +114,48 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
     // the global is defined (reporting initialized:false, plus any error)
     // while connecting and after a failed connect too.
     installStateHook(_stateJson);
+    // Task 6: the drive seam (`window.__meridianAction(action, arg)`).
+    installActionHook(_runE2eAction);
     _start();
+  }
+
+  /// e2e drive seam (Task 6): invokes the same handlers the demo's buttons
+  /// call — Flutter web (CanvasKit) renders no DOM widgets for Playwright
+  /// to click, so the hook drives `find`/`stream` directly.
+  void _runE2eAction(String action, String arg) {
+    switch (action) {
+      case 'find':
+        unawaited(_findClosest(arg));
+      case 'stream':
+        unawaited(_streamToPeer(arg));
+    }
   }
 
   Future<void> _start() async {
     try {
       rtc.MediaStream? stream;
-      try {
-        stream = await rtc.navigator.mediaDevices.getUserMedia({
-          'video': true,
-          'audio': true,
-        });
-      } catch (err) {
-        _log('no local media ($err); joining without an uplink');
+      // Local copy: a `late final` field cannot be type-promoted, and the
+      // conditional-imported fileUplink takes the non-null param.
+      final mediaSrc = _mediaSrc;
+      if (mediaSrc != null) {
+        try {
+          stream = await fileUplink(mediaSrc);
+          _log('uplink: looping $mediaSrc');
+        } catch (err) {
+          _log('mediaSrc uplink failed ($err); falling back');
+        }
       }
-      final node = MeridianNode(peerId: const Uuid().v4());
+      if (stream == null) {
+        try {
+          stream = await rtc.navigator.mediaDevices.getUserMedia({
+            'video': true,
+            'audio': true,
+          });
+        } catch (err) {
+          _log('no local media ($err); joining without an uplink');
+        }
+      }
+      final node = MeridianNode(peerId: const Uuid().v4(), config: _config);
       node.onSupernodeElected = (peerId) => _log('supernode elected: $peerId');
       node.onPeerDisconnected = (peerId) => _log('peer disconnected: $peerId');
       node.onRemoteStreamRemoved = (peerId) {
@@ -185,6 +264,8 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
       'isSupernode': node?.isSupernode ?? false,
       'clusterLeader': node?.clusterLeader,
       'activeStreams': [...?node?.activeStreams.keys],
+      'lastFindResult': _lastFindResult,
+      'lastStreamResult': _lastStreamResult,
       'wireLog': _wireLogEnabled ? _wireLogEntries : const <dynamic>[],
     });
   }
@@ -203,29 +284,39 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
     setState(() => _remoteRenderers[peerId] = renderer);
   }
 
-  Future<void> _findClosest() async {
+  Future<void> _findClosest(String target) async {
     final node = _node;
-    final target = _findTarget.text.trim();
     if (node == null || target.isEmpty) return;
     _log('finding closest node to $target...');
     try {
       final result = await node.findClosestNode(target);
       final rtt = result.closestRttMs?.toStringAsFixed(0);
       _log('closest to $target: ${result.closestPeerId} (${rtt ?? '?'} ms)');
+      _lastFindResult = {
+        'target': target,
+        'closestPeerId': result.closestPeerId,
+        if (result.closestRttMs != null) 'closestRttMs': result.closestRttMs,
+      };
     } catch (err) {
       _log('closest-node query failed: $err');
+      _lastFindResult = {'target': target, 'error': err.toString()};
     }
   }
 
-  Future<void> _streamToPeer() async {
+  Future<void> _streamToPeer(String target) async {
     final node = _node;
-    final target = _streamTarget.text.trim();
     if (node == null || target.isEmpty) return;
     try {
       await node.establishMediaStream(target);
       _log('streaming to $target');
+      _lastStreamResult = {'peerId': target, 'ok': true};
     } catch (err) {
       _log('streaming to $target failed: $err');
+      _lastStreamResult = {
+        'peerId': target,
+        'ok': false,
+        'error': err.toString()
+      };
     }
   }
 
@@ -288,7 +379,8 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
                             ),
                           ),
                           TextButton(
-                            onPressed: _findClosest,
+                            onPressed: () => unawaited(
+                                _findClosest(_findTarget.text.trim())),
                             child: const Text('Find closest node'),
                           ),
                         ],
@@ -304,7 +396,8 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
                             ),
                           ),
                           TextButton(
-                            onPressed: _streamToPeer,
+                            onPressed: () => unawaited(
+                                _streamToPeer(_streamTarget.text.trim())),
                             child: const Text('Stream to peer'),
                           ),
                         ],

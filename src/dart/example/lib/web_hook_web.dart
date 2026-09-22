@@ -12,3 +12,18 @@ void installStateHook(String Function() stateJson) {
   JSString hook() => stateJson().toJS;
   _meridianStateHook = hook.toJS;
 }
+
+/// Installs `window.__meridianAction(action, arg)` — the e2e drive seam
+/// (Task 6). Flutter web (CanvasKit) renders no DOM widgets, so Playwright
+/// cannot click the demo's buttons or type into its fields; the hook runs
+/// the same handlers the buttons call (`find` -> the closest-node query,
+/// `stream` -> establishMediaStream). Results are observable through the
+/// state hook's `lastFindResult`/`lastStreamResult`.
+@JS('__meridianAction')
+external set _meridianActionHook(JSFunction hook);
+
+void installActionHook(void Function(String action, String arg) action) {
+  void hook(JSString jsAction, JSString jsArg) =>
+      action(jsAction.toDart, jsArg.toDart);
+  _meridianActionHook = hook.toJS;
+}
