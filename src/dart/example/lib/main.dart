@@ -78,9 +78,9 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   // Task 7 precedence: the web `?signaling=` param wins (e2e Dart-web tabs),
   // then the native `MRD_SIGNALING` env override (desktop peer), then the
   // default. envOverride is a browser no-op, so web behavior is unchanged.
-  late final String _signalingUrl =
-      _e2eParams['signaling'] ?? envOverride('MRD_SIGNALING') ??
-          _defaultSignalingUrl;
+  late final String _signalingUrl = _e2eParams['signaling'] ??
+      envOverride('MRD_SIGNALING') ??
+      _defaultSignalingUrl;
   late final String? _mediaSrc = _e2eParams['mediaSrc'];
   // Task 7 (desktop peer): when MRD_STATUS_FILE is set, one JSON status
   // line per second (the _stateJson() snapshot — same fields as the web
