@@ -98,10 +98,11 @@ const scriptPath = (name: string) =>
   fileURLToPath(new URL(`../scripts/${name}`, import.meta.url));
 
 /**
- * Brings one region's netns rig up (idempotent: an already-live region is
- * reused) and resolves once its Chromium CDP endpoint answers
- * `/json/version` through the slirp port forward. Rejects with the rig's
- * log tail on any failure, so a boot problem fails the suite loudly.
+ * Brings one region's netns rig up (idempotent: the raise script sweeps
+ * the region's orphaned processes and re-raises from scratch) and resolves
+ * once its Chromium CDP endpoint answers `/json/version` through the slirp
+ * port forward. Rejects with the rig's log tail on any failure, so a boot
+ * problem fails the suite loudly.
  *
  * Deterministic: the region's state is written to
  * `/tmp/mrd-netns/<region>.json` (pid, endpoint, half-delay, tap0 ip).

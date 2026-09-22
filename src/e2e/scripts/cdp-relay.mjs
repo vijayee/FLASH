@@ -1,10 +1,10 @@
 // Tiny TCP relay used INSIDE a netns rig (Task 3): Chromium's DevTools
 // server can no longer be bound to a non-loopback address (new headless
 // ignores --remote-debugging-address and always binds 127.0.0.1), so the
-// slirp4netns host-forward — which injects packets addressed to the
-// netns tap IP — needs this relay listening on 10.0.<i>.100:9223 and
-// piping every connection through to 127.0.0.1:9222. Plain byte piping:
-// carries both the /json/version HTTP and the DevTools WebSocket.
+// slirp4netns host-forward — which injects packets addressed to the netns
+// tap IP — needs this relay listening on 0.0.0.0:<listenPort> inside the
+// netns and piping every connection through to 127.0.0.1:9222. Plain byte
+// piping: carries both the /json/version HTTP and the DevTools WebSocket.
 //
 // Usage: node cdp-relay.mjs <listenIp> <listenPort> <upstreamPort> [parentPid]
 //

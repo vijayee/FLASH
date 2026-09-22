@@ -187,9 +187,11 @@ const rigFor = (region: NetnsRegion): LaunchedRegion =>
   launched.find((r) => r.region === region)!;
 
 // The rig (3 netns + slirp + 3 Chromium boots) is driven by
-// src/netns-launch.ts with its own 75s readiness deadline; beforeAll runs
-// under the default 120s hook budget.
+// src/netns-launch.ts with a 180s readiness deadline; the setTimeout below
+// lets the launcher's log-tail forensics surface before a generic hook
+// timeout would.
 test.beforeAll(async () => {
+  test.setTimeout(180_000);
   signaling = startSignaling(SIGNALING_PORT);
   await signaling.ready;
 

@@ -18,6 +18,11 @@ set -uo pipefail
 
 STATE_ROOT=/tmp/mrd-netns
 
+json_num() { # <jsonFile> <field> -> the field's number (empty if absent)
+  sed -n "s/.*\"$2\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" "$1" |
+    head -n 1
+}
+
 sweep_orphans() { # <region> — kill any live rig process of this region
   local region=$1 pid pass cmdline
   # Marker scan (not pid files): catches rigs that died before writing
@@ -30,7 +35,7 @@ sweep_orphans() { # <region> — kill any live rig process of this region
       pid=${cmdline#/proc/}; pid=${pid%/cmdline}
       [ -r "$cmdline" ] || continue
       [ "$pid" != "$self" ] || continue
-      if tr '\0' ' ' <"$cmdline" | grep -q "mrd-netns/$region"; then
+      if tr '\0' ' ' <"$cmdline" 2>/dev/null | grep -q "mrd-netns/$region"; then
         if [ "$pass" = TERM ]; then kill "$pid" 2>/dev/null; fi
         if [ "$pass" = KILL ]; then kill -9 "$pid" 2>/dev/null; fi
       fi
@@ -78,9 +83,9 @@ down_region() { # <region>
     done
     if [ "$pass" = TERM ]; then sleep 1; fi
   done
-  # Preserve the teardown logs for forensics, bounded to a few dumps.
-  rm -rf "$dir.done"
+  # Preserve the teardown logs for forensics, bounded to the newest 3 dumps.
   mv "$dir" "$dir.done-$(date +%s)" 2>/dev/null || true
+  ls -d "$dir".done-* 2>/dev/null | sort | head -n -3 | xargs -r rm -rf
   rm -rf "$json"
   echo "netns-down: $region down"
 }
