@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createConnection } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 
 /** One entry of the demo's `?wirelog=1` ring buffer (Task 1 demo seam). */
@@ -216,3 +217,89 @@ export const state = (page: Page) =>
   page.evaluate(
     () => window.__meridian?.state() ?? null,
   ) as Promise<PeerState | null>;
+
+/** Handle on the spawned static demo server, for `beforeAll`/`afterAll`. */
+export interface DemoServer {
+  proc: ChildProcess;
+  /** Resolves once the server's port accepts connections. */
+  ready: Promise<void>;
+  /** Kills the server process (idempotent). */
+  stop: () => void;
+}
+
+export interface MiniStunServer {
+  proc: ChildProcess;
+  ready: Promise<void>;
+  stop: () => void;
+}
+
+/**
+ * Boots scripts/mini-stun.mjs — the loopback STUN responder the netns rig
+ * points peers at via the demo's `?stun=` affordance. Readiness is a real
+ * STUN binding round-trip (UDP has no listen-probe).
+ */
+export function startMiniStun(
+  { port = 3478, mappedIp = '10.0.2.2' }: { port?: number; mappedIp?: string } = {},
+): MiniStunServer {
+  const script = fileURLToPath(new URL('../scripts/mini-stun.mjs', import.meta.url));
+  const proc = spawn(process.execPath, [script, String(port)], {
+    env: { ...process.env, MAPPED_IP: mappedIp },
+    stdio: 'ignore',
+  });
+  const ready = (async () => {
+    const { createSocket } = await import('node:dgram');
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      if (proc.exitCode !== null) {
+        throw new Error(`mini-stun exited (code ${proc.exitCode})`);
+      }
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const sock = createSocket('udp4');
+          const msg = Buffer.alloc(20);
+          msg.writeUInt16BE(0x0001, 0);
+          Buffer.from([0x21, 0x12, 0xa4, 0x42]).copy(msg, 4);
+          Buffer.from('0123456789abcdef012345', 'hex').copy(msg, 8);
+          const done = (err?: Error) => {
+            clearTimeout(timer);
+            sock.close();
+            err ? reject(err) : resolve();
+          };
+          const timer = setTimeout(
+            () => done(new Error('mini-stun probe timeout')),
+            1000,
+          );
+          sock.on('message', () => done());
+          sock.on('error', (e) => done(e));
+          sock.send(msg, port, '127.0.0.1');
+        });
+        return;
+      } catch {
+        if (Date.now() > deadline) {
+          throw new Error(`mini-stun never answered on ${port}`);
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+  })();
+  return { proc, ready, stop: () => proc.kill() };
+}
+
+/**
+ * Boots scripts/serve.mjs — the static server for the JS demo pages
+ * (`/` -> the demo, `/src/...` -> the library package root). `host` must
+ * be 0.0.0.0 when netns peers (Task 3) must reach it: they dial the
+ * server through their slirp gateway, which lands on the host's loopback.
+ */
+export function startServe(
+  { host = '127.0.0.1', port = 8090 }: { host?: string; port?: number } = {},
+): DemoServer {
+  const script = fileURLToPath(
+    new URL('../scripts/serve.mjs', import.meta.url),
+  );
+  const proc = spawn(process.execPath, [script], {
+    env: { ...process.env, HOST: host, PORT: String(port) },
+    stdio: 'ignore',
+  });
+  return { proc, ready: waitForPort(proc, port), stop: () => proc.kill() };
+}

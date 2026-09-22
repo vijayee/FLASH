@@ -10,6 +10,26 @@ let node = null;
 let statusTimer = null;
 const renderedStreams = new Map(); // peerId -> rendered <video>
 
+// --- e2e config affordances (Task 3; example-only) -----------------------
+// ?gossipMs=<n> overrides MERIDIAN_CONFIG.gossipPeriodMs so a local e2e
+// run converges in seconds instead of waiting out the 30s production
+// gossip period. ?stun=a,b overrides stunServers (the netns rig points
+// peers at a loopback mini-STUN through slirp). Invalid values fall back
+// to the library defaults.
+const urlParams = new window.URLSearchParams(window.location.search);
+const gossipMsParam = Number(urlParams.get('gossipMs'));
+const stunParam = urlParams.get('stun');
+const stunOverride = stunParam
+  ? stunParam.split(',').map((s) => s.trim()).filter(Boolean)
+  : null;
+const DEMO_CONFIG = {
+  ...MERIDIAN_CONFIG,
+  ...(Number.isFinite(gossipMsParam) && gossipMsParam > 0
+    ? { gossipPeriodMs: gossipMsParam }
+    : {}),
+  ...(stunOverride ? { stunServers: stunOverride } : {}),
+};
+
 // --- e2e wire log (?wirelog=1) -------------------------------------------
 // Optional bounded record of every DataChannel send/receive and signaling
 // message, surfaced through window.__meridian.state().wireLog so a failed
@@ -159,9 +179,21 @@ function wireHandlers() {
   };
 }
 
+// randomUUID exists only in secure contexts; the demo also runs against
+// plain-http origins (netns/Azure peers via slirp), so fall back.
+function uuidV4() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
+    (
+      c ^
+      (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
+    ).toString(16)
+  );
+}
+
 async function connect() {
   const url = $('signal-url').value || 'ws://localhost:8080';
-  const peerId = crypto.randomUUID();
+  const peerId = uuidV4();
   $('peer-id').textContent = peerId;
 
   let uplink;
@@ -175,7 +207,7 @@ async function connect() {
     log(`no local media (${err.name}); joining without an uplink`);
   }
 
-  node = new MeridianNode(peerId, null, MERIDIAN_CONFIG);
+  node = new MeridianNode(peerId, null, DEMO_CONFIG);
   wireHandlers();
   installWireLog(node);
   await node.initialize(url, uplink);
