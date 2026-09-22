@@ -94,12 +94,23 @@ export interface SignalingProcess {
  * test.beforeAll(async () => { signaling = startSignaling(); await signaling.ready; });
  * test.afterAll(() => { try { signaling?.stop(); } catch {} });
  * ```
+ *
+ * `logFile` (Task 12) enables the server's `LOG=flash-signaling` JSONL
+ * logging at the given path — pass `artifacts.signalingPath` so the relayed
+ * traffic lands inside the run's artifact dir.
  */
-export function startSignaling(port = 8080): SignalingProcess {
+export function startSignaling(
+  port = 8080,
+  { logFile }: { logFile?: string } = {},
+): SignalingProcess {
   // src/e2e/src/orchestrator.ts -> repo root is three levels up.
   const proc = spawn('node', ['src/signaling-server/server.js'], {
     cwd: new URL('../../../', import.meta.url).pathname,
-    env: { ...process.env, PORT: String(port) },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      ...(logFile ? { LOG: 'flash-signaling', LOG_FILE: logFile } : {}),
+    },
     stdio: 'ignore',
   });
   return { proc, ready: waitForPort(proc, port), stop: () => proc.kill() };

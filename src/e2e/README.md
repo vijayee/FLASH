@@ -77,3 +77,48 @@ src/e2e/azure/teardown.sh             # az group delete --yes --no-wait
 B2s x4 ≈ **$120/month** running 24/7 (plus disk/IP churn) — tear the
 group down whenever the rig is idle; re-provisioning is one command
 (`provision.sh` is idempotent: existing VMs are skipped, NSG re-applied).
+
+## Run artifacts (Task 12)
+
+Specs that call `startArtifacts(testInfo)` (opt-in; see `src/artifacts.ts`)
+get a per-run dir under `runs/` (gitignored):
+
+```
+runs/<UTC ts>-w<worker>-<spec basename>/
+├── peers/<peerId>.jsonl      500ms state snapshots (`kind:"state"`) + wirelog
+│                             events beyond a watermark (`kind:"wire"`), each
+│                             line with a peer-local `seq` + ms `ts`.
+│                             Heartbeat-class keep-alives (raft
+│                             append_entries/votes — several hundred frames/s
+│                             once the supernode cluster forms) are NOT
+│                             recorded line-by-line; they are aggregated per
+│                             tick into the state line's `wireSkipped` counter.
+├── console/<peerId>.log      page console + pageerror streams
+├── ice-stats/<peerId>.jsonl  1s getStats() digests for media-carrying
+│                             PeerConnections (PC tracker init script; pages
+│                             without visible media PCs record nothing —
+│                             graceful skip)
+├── signaling.jsonl           the signaling server's own JSONL log (the spec
+│                             spawns it with `startSignaling(port, { logFile })`;
+│                             one line per relayed/dropped message +
+│                             register/disconnect/peers_list, ISO timestamps)
+├── topology.json             the region/delay config actually in force
+└── result.json               per-test name/status/duration/error
+```
+
+The standalone signaling server can also be run with
+`LOG=flash-signaling LOG_FILE=path node server.js` to produce the same
+JSONL log outside the suite.
+
+## Failure playbook
+
+Which artifact answers which failure class:
+
+| Failure class | Where to look |
+| --- | --- |
+| Discovery never converged | `peers/<peerId>.jsonl`: does `state.knownPeers` grow and flip `status` to `connected`? Cross-check `signaling.jsonl`: did each peer `register`, and do `peers_list` lines show the others (`count > 0`)? If registers exist but knownPeers stalls, gossip (not signaling) is broken; if `peers_list` counts stay 0, registration never reached the server (check `console/<peerId>.log` for WS errors). |
+| ICE fails (media never establishes) | `ice-stats/<peerId>.jsonl`: watch `pc.connectionState`/`iceConnectionState` and the selected pair's `localCandidateType`/`remoteCandidateType`. `srflx↔srflx` stuck at `checking` → the STUN mapping or the netns UDP path is broken; candidates present but pairs never `succeeded` → reachability/firewall; no `ice-stats` lines at all → the tracker was installed after page load (see the graceful-skip note above). |
+| Query timed out (`findClosestNode` rejects) | `peers/<peerId>.jsonl` `kind:"wire"` lines: correlate by `payload.queryId` — is the `probe_request` sent (`dir:"send"`, right `peerId`), does a matching `probe_result`/`probe_answer` come back, and how long between `wireTs` values? Request sent but no relay → check `signaling.jsonl` for a `relay_dropped` line naming the target. |
+| Ring placement wrong | `peers/<peerId>.jsonl`: the `ringIndex` timeline per known peer, against `topology.json`'s `rttMatrixMs`. First check `rtt` in the same snapshots — if the measured RTT disagrees with the scripted matrix, the rig (netem) is wrong, not the ring logic; if RTT is right but `ringIndex` doesn't match the bounds, it's a library bug. |
+| Supernode election picked the wrong peer | `peers/*.jsonl` final snapshots (`clusterLeader`, `isSupernode`) + each candidate's RTT to the others; `signaling.jsonl` shows the relayed probe offers that measured them. |
+| Crash/browser-level failure | `console/<peerId>.log` (pageerror entries) first, then `result.json` for which test failed with which message. |

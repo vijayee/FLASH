@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
+import { startArtifacts, type ArtifactRun } from '../src/artifacts.js';
 import { connectOverCDP } from '../src/cdp.js';
 import {
   launchRegion,
@@ -248,6 +249,10 @@ let signaling: SignalingProcess;
 let demo: DemoServer;
 let miniStun: MiniStunServer;
 let launched: LaunchedRegion[];
+// Task 12: this spec opts into the per-run artifact collector (see
+// src/artifacts.ts). The other specs are untouched — the collector is opt-in
+// per spec, not a fixture the whole suite inherits.
+let artifacts: ArtifactRun | null = null;
 const browsers: Browser[] = [];
 const pages = {} as Record<NetnsRegion, Page>;
 const peerIds = {} as Record<NetnsRegion, string>;
@@ -258,9 +263,12 @@ const rigFor = (region: NetnsRegion): LaunchedRegion =>
 // Same rig as local-query-routing.spec.ts (3 netns + slirp + 3 Chromium
 // boots, 180s readiness deadline so the launcher's log-tail forensics can
 // surface before a generic hook timeout would).
-test.beforeAll(async () => {
+test.beforeAll(async ({}, testInfo) => {
   test.setTimeout(180_000);
-  signaling = startSignaling(SIGNALING_PORT);
+  // Start the collector FIRST so the signaling server's JSONL log lands in
+  // the run dir (relayed traffic + register/disconnect, Task 12).
+  artifacts = startArtifacts(testInfo);
+  signaling = startSignaling(SIGNALING_PORT, { logFile: artifacts.signalingPath });
   await signaling.ready;
 
   // HOST=0.0.0.0: the netns peers load the demo (and the media fixture)
@@ -283,6 +291,12 @@ test.beforeAll(async () => {
       pages[region] = await ctx.newPage();
     }),
   );
+
+  // Ice-stats reachability: the tracker init script must be installed BEFORE
+  // the demo page loads (it wraps the RTCPeerConnection constructor; after
+  // load it would see nothing and the ice-stats collector would record 0
+  // lines — the documented graceful skip).
+  for (const region of REGIONS) artifacts?.installPcTracker(pages[region]);
 
   // Every page loads with a REAL looping media source (penguin.mp4), so
   // every peer joins with a file-driven uplink instead of the fake device.
@@ -311,9 +325,48 @@ test.beforeAll(async () => {
     peerIds[region] = bootstrapped[i].peerId;
     expect(peerIds[region], `${region} peer id`).toBeTruthy();
   });
+
+  // Per-peer artifacts for the rest of the run: 500ms state + wirelog JSONL,
+  // console/pageerror stream, 1s getStats() digests (Task 12). All run on
+  // their own intervals — nothing here is on a test's critical path.
+  artifacts?.writeTopology({
+    rig: 'unprivileged netns + tc netem egress (src/netns-launch.ts)',
+    signalingUrl: `ws://<gateway>:${SIGNALING_PORT}`,
+    stun: STUN_URL,
+    gossipMsOverride: GOSSIP_MS_OVERRIDE,
+    mediaSrc: MEDIA_SRC,
+    regions: Object.fromEntries(
+      REGIONS.map((region) => [
+        region,
+        {
+          halfDelayMs: rigFor(region).spec.halfDelayMs,
+          gateway: rigFor(region).spec.gateway,
+          cdpHostPort: rigFor(region).spec.cdpHostPort,
+          peerId: peerIds[region],
+        },
+      ]),
+    ),
+    // RTT(a <-> b) = halfDelayMs_a + halfDelayMs_b (+0-2ms slirp overhead).
+    rttMatrixMs: {
+      'eu-us': 80,
+      'eu-asia': 160,
+      'us-asia': 120,
+    },
+  });
+  for (const region of REGIONS) {
+    await artifacts?.startPeerRecorder(pages[region], peerIds[region]);
+    artifacts?.startIceStats(pages[region], peerIds[region]);
+  }
+});
+
+test.afterEach(async ({}, testInfo) => {
+  // result.json: this test's name/outcome (TestInfo already knows both).
+  artifacts?.recordResult(testInfo);
 });
 
 test.afterAll(async () => {
+  // Flush + close every collector before the pages disappear.
+  await artifacts?.close();
   await Promise.allSettled(browsers.map((browser) => browser.close()));
   for (const region of REGIONS) {
     try {

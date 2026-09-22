@@ -1,4 +1,7 @@
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import net from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { SignalingServer } from '../server.js';
@@ -318,4 +321,49 @@ describe('signaling server', () => {
     const peers = await waitForPeers(b, 'peer-b', (list) => list.length === 0);
     expect(peers).toEqual([]);
   });
+
+  it('writes a JSONL line for a relayed connect_offer when file logging is enabled', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'signaling-log-'));
+    const logFile = path.join(dir, 'signaling.jsonl');
+    const server = new SignalingServer({ logFile });
+    servers.push(server);
+    const port = await server.listen(0);
+    const a = connect(port);
+    const b = connect(port);
+    await register(a, 'peer-a');
+    await register(b, 'peer-b');
+
+    const offer = { type: 'connect_offer', target: 'peer-b', senderId: 'peer-a', sdp: { type: 'offer', sdp: 'v=0...' } };
+    a.send(offer);
+    expect(await b.next()).toEqual(offer);
+
+    // The log stream writes asynchronously: poll the file for the relay line.
+    const line = await pollForLine(logFile, (entry) => entry.event === 'relay' && entry.type === 'connect_offer');
+    expect(line).toMatchObject({ event: 'relay', type: 'connect_offer', from: 'peer-a', to: 'peer-b' });
+    expect(typeof line.ts).toBe('string');
+
+    // register lines land too (one per registration).
+    const lines = readLogLines(logFile);
+    expect(lines.some((entry) => entry.event === 'register' && entry.peerId === 'peer-a')).toBe(true);
+    expect(lines.some((entry) => entry.event === 'register' && entry.peerId === 'peer-b')).toBe(true);
+  });
 });
+
+function readLogLines(file) {
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+// Stream writes are asynchronous; wait until the expected JSONL line lands.
+async function pollForLine(file, predicate) {
+  for (let i = 0; i < 200; i++) {
+    if (existsSync(file)) {
+      const hit = readLogLines(file).find(predicate);
+      if (hit) return hit;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`expected JSONL line never appeared in ${file}`);
+}

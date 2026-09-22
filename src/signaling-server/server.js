@@ -1,11 +1,27 @@
 import { createServer } from 'node:http';
+import { createWriteStream, mkdirSync } from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket, { WebSocketServer } from 'ws';
 
 const MAX_PEER_LIST = 20;
 
+// Task 12: optional JSONL observability log. Enabled by `LOG=flash-signaling`
+// (writes logs/signaling.jsonl under the cwd); path overridable via LOG_FILE.
+// The SignalingServer class can also be given an explicit logFile option
+// (used by the vitest suite and the e2e orchestrator).
+const LOG_EVENT = 'flash-signaling';
+const DEFAULT_LOG_FILE = 'logs/signaling.jsonl';
+
+function logFileFromEnv() {
+  if (process.env.LOG !== LOG_EVENT) return null;
+  return process.env.LOG_FILE || DEFAULT_LOG_FILE;
+}
+
 export class SignalingServer {
-  constructor() {
+  constructor({ logFile = logFileFromEnv() } = {}) {
+    this.logFile = logFile ?? null;
+    this.logStream = null;
     this.peers = new Map(); // peerId -> WebSocket
     this.httpServer = createServer((req, res) => {
       res.writeHead(426);
@@ -37,6 +53,24 @@ export class SignalingServer {
     for (const client of this.wss.clients) client.terminate();
     this.wss.close();
     await new Promise((resolve) => this.httpServer.close(resolve));
+    this.logStream?.end();
+    this.logStream = null;
+  }
+
+  /**
+   * Appends one JSONL line (with an ISO timestamp) to the log file. Lazily
+   * creates the file's directory and stream; write errors are swallowed —
+   * observability must never take the relay down.
+   */
+  log(event, fields = {}) {
+    if (!this.logFile) return;
+    if (!this.logStream) {
+      mkdirSync(path.dirname(this.logFile), { recursive: true });
+      this.logStream = createWriteStream(this.logFile, { flags: 'a' });
+      this.logStream.on('error', () => {});
+    }
+    const line = JSON.stringify({ ts: new Date().toISOString(), event, ...fields });
+    this.logStream.write(`${line}\n`);
   }
 
   handleMessage(ws, data) {
@@ -59,6 +93,7 @@ export class SignalingServer {
           }
           this.peers.set(message.peerId, ws);
           ws.peerId = message.peerId;
+          this.log('register', { peerId: message.peerId });
         }
         break;
 
@@ -75,12 +110,14 @@ export class SignalingServer {
           .filter((id) => id !== message.senderId)
           .slice(0, MAX_PEER_LIST);
         ws.send(JSON.stringify({ type: 'peers_list', peers }));
+        this.log('peers_list', { to: message.senderId ?? null, count: peers.length });
         break;
       }
 
       case 'disconnect':
         if (typeof message.peerId === 'string' && this.peers.get(message.peerId) === ws) {
           this.peers.delete(message.peerId);
+          this.log('disconnect', { peerId: message.peerId, reason: 'message' });
         }
         break;
     }
@@ -90,7 +127,20 @@ export class SignalingServer {
     if (typeof message.target !== 'string') return;
     const targetWs = this.peers.get(message.target);
     if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+      this.log('relay', {
+        type: message.type,
+        from: message.senderId ?? null,
+        to: message.target,
+        bytes: JSON.stringify(message).length,
+      });
       targetWs.send(JSON.stringify(message));
+    } else {
+      this.log('relay_dropped', {
+        type: message.type,
+        from: message.senderId ?? null,
+        to: message.target,
+        reason: targetWs ? 'socket-not-open' : 'unknown-target',
+      });
     }
   }
 
@@ -99,6 +149,7 @@ export class SignalingServer {
     // already re-registered by a newer socket, leave that one alone.
     if (ws.peerId !== undefined && this.peers.get(ws.peerId) === ws) {
       this.peers.delete(ws.peerId);
+      this.log('disconnect', { peerId: ws.peerId, reason: 'socket-closed' });
     }
   }
 }
@@ -114,6 +165,7 @@ if (isMain) {
     .listen(port)
     .then(() => {
       console.log(`Signaling server listening on port ${port}`);
+      if (server.logFile) console.log(`Signaling JSONL log: ${server.logFile}`);
     })
     .catch((error) => {
       console.error(`Signaling server failed to listen on port ${port}:`, error);
