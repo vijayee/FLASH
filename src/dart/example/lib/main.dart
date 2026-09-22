@@ -12,6 +12,9 @@ import 'web_hook_stub.dart' if (dart.library.js_interop) 'web_hook_web.dart';
 // e2e drive seam + `?mediaSrc=` uplink (Task 6): `window.__meridianAction()`
 // and the looping-file uplink on web builds; native targets get stubs.
 import 'uplink_stub.dart' if (dart.library.js_interop) 'uplink_web.dart';
+// Task 7 (desktop peer): native runtime env overrides (`MRD_SIGNALING`,
+// `MRD_STATUS_FILE`) + the appendable status file; web builds get no-ops.
+import 'desktop_env_stub.dart' if (dart.library.io) 'desktop_env_io.dart';
 
 void main() => runApp(const MeridianExampleApp());
 
@@ -72,9 +75,18 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
         : const <String, String>{};
   }
 
+  // Task 7 precedence: the web `?signaling=` param wins (e2e Dart-web tabs),
+  // then the native `MRD_SIGNALING` env override (desktop peer), then the
+  // default. envOverride is a browser no-op, so web behavior is unchanged.
   late final String _signalingUrl =
-      _e2eParams['signaling'] ?? _defaultSignalingUrl;
+      _e2eParams['signaling'] ?? envOverride('MRD_SIGNALING') ??
+          _defaultSignalingUrl;
   late final String? _mediaSrc = _e2eParams['mediaSrc'];
+  // Task 7 (desktop peer): when MRD_STATUS_FILE is set, one JSON status
+  // line per second (the _stateJson() snapshot — same fields as the web
+  // hook) is appended there, so an agent/test reads the native peer's
+  // state without any display or JS seam.
+  late final String? _statusFilePath = envOverride('MRD_STATUS_FILE');
   late final MeridianConfig _config = _configFromParams();
 
   MeridianConfig _configFromParams() {
@@ -105,6 +117,7 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
 
   MeridianNode? _node;
   Timer? _statusTimer;
+  Timer? _statusFileTimer;
   String? _error;
 
   @override
@@ -116,6 +129,17 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
     installStateHook(_stateJson);
     // Task 6: the drive seam (`window.__meridianAction(action, arg)`).
     installActionHook(_runE2eAction);
+    // Task 7: desktop-peer status file — one snapshot line now (so a poller
+    // sees the file and initialized:false immediately) and one per second.
+    final statusFile = _statusFilePath;
+    if (statusFile != null) {
+      void writeStatusLine() => appendStatusLine(statusFile, _stateJson());
+      writeStatusLine();
+      _statusFileTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => writeStatusLine(),
+      );
+    }
     _start();
   }
 
@@ -333,6 +357,7 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   @override
   void dispose() {
     _statusTimer?.cancel();
+    _statusFileTimer?.cancel();
     _findTarget.dispose();
     _streamTarget.dispose();
     for (final renderer in _remoteRenderers.values) {
