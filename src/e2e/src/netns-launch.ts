@@ -231,6 +231,37 @@ export async function launchRegion(
   };
 }
 
+/**
+ * Task 5 (prune-path isolation): SIGKILLs the region's netns Chromium (the
+ * pid netns-up.sh recorded in <region>.json). Unlike page.close(), a killed
+ * browser process cannot tear its DataChannels down: WebRTC rides UDP/SCTP
+ * and a SIGKILL emits no teardown packets, so the survivors see pure
+ * silence — no graceful peer_leaving, no DataChannel close event, and the
+ * signaling server is pull-only (no departure push) — which freezes the
+ * victim's lastSeen and leaves pruneStalePeers as the only reachable
+ * failure path. Tolerates an already-dead rig (ESRCH).
+ */
+export function killRegionChromium(region: NetnsRegion): void {
+  const stateFile = `${STATE_ROOT}/${region}.json`;
+  if (!existsSync(stateFile)) {
+    throw new Error(`no netns rig state for ${region} (${stateFile})`);
+  }
+  let pid: number | undefined;
+  try {
+    pid = (JSON.parse(readFileSync(stateFile, 'utf8')) as { pid?: number }).pid;
+  } catch {
+    // Unreadable state file: the pid check below reports it.
+  }
+  if (!pid) {
+    throw new Error(`netns rig state for ${region} records no chromium pid`);
+  }
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err;
+  }
+}
+
 /** Tears one region's rig down (idempotent no-op without state). */
 export async function netnsDown(region: NetnsRegion): Promise<void> {
   const down = fileURLToPath(
