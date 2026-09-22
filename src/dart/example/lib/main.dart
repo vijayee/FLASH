@@ -1,9 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:meridian_webrtc/meridian_webrtc.dart';
 import 'package:uuid/uuid.dart';
+
+// e2e read seam (Task 1): `window.__meridianState()` on web builds; native
+// targets (desktop peer, Task 7) get a no-op stub.
+import 'web_hook_stub.dart' if (dart.library.js_interop) 'web_hook_web.dart';
 
 void main() => runApp(const MeridianExampleApp());
 
@@ -29,11 +34,20 @@ class MeridianDemoPage extends StatefulWidget {
 class _MeridianDemoPageState extends State<MeridianDemoPage> {
   static const _signalingUrl = 'ws://localhost:8080';
   static const _maxLogEntries = 200;
+  static const _maxWireLogEntries = 2000;
 
   final _findTarget = TextEditingController();
   final _streamTarget = TextEditingController();
   final _logEntries = <String>[];
   final _remoteRenderers = <String, rtc.RTCVideoRenderer>{};
+
+  // --- e2e wire log (?wirelog=1) -----------------------------------------
+  // Bounded record of observed wire traffic (signaling sends + DataChannel
+  // receives — the only directions reachable from the example without a
+  // library seam), surfaced through window.__meridianState().wireLog.
+  final _wireLogEntries = <Map<String, dynamic>>[];
+  final _wrappedChannels = <rtc.RTCDataChannel>{};
+  late final bool _wireLogEnabled = Uri.base.queryParameters['wirelog'] == '1';
 
   MeridianNode? _node;
   Timer? _statusTimer;
@@ -69,15 +83,102 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
         _renderRemoteStream(peerId, stream);
       };
       await node.initialize(_signalingUrl, mediaStream: stream);
+      _installE2eHooks(node);
       setState(() => _node = node);
       _log('connected as ${node.peerId} via $_signalingUrl');
-      _statusTimer = Timer.periodic(
-        const Duration(seconds: 1),
-        (_) => setState(() {}),
-      );
+      _statusTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        // Newly integrated peers' DataChannels get their receive path
+        // recorded lazily here (onMessage is a single slot, so the wrap
+        // must ride on top of the library's own handler).
+        _wrapDataChannels();
+        setState(() {});
+      });
     } catch (err) {
       setState(() => _error = err.toString());
     }
+  }
+
+  /// e2e seam (Task 1): records subsequent signaling sends by wrapping the
+  /// node's [SignalSink] and exposes the state snapshot + wire log to
+  /// Playwright via `window.__meridianState()`.
+  void _installE2eHooks(MeridianNode node) {
+    final sink = node.signalChannel;
+    if (_wireLogEnabled && sink != null) {
+      node.signalChannel = _RecordingSignalSink(sink, node.peerId, _recordWire);
+    }
+    installStateHook(_stateJson);
+  }
+
+  void _wrapDataChannels() {
+    if (!_wireLogEnabled) return;
+    final node = _node;
+    if (node == null) return;
+    for (final peer in node.knownPeers.values) {
+      final dc = peer.dataChannel;
+      if (dc == null || _wrappedChannels.contains(dc)) continue;
+      _wrappedChannels.add(dc);
+      final original = dc.onMessage;
+      dc.onMessage = (message) {
+        _recordWire('recv', peer.peerId, message.text);
+        if (original != null) original(message);
+      };
+    }
+  }
+
+  void _recordWire(String dir, String peerId, String raw) {
+    var type = 'unknown';
+    Object? payload = raw;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        payload = decoded;
+        final decodedType = decoded['type'];
+        if (decodedType is String) type = decodedType;
+      }
+    } catch (_) {
+      // Not JSON; keep the raw payload with the placeholder type.
+    }
+    if (_wireLogEntries.length >= _maxWireLogEntries) {
+      _wireLogEntries.removeAt(0);
+    }
+    _wireLogEntries.add({
+      'dir': dir,
+      'type': type,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+      'peerId': peerId,
+      'payload': payload,
+    });
+  }
+
+  /// Snapshot over the node's public fields, mirroring the JS demo's
+  /// `window.__meridian.state()` shape (ring 0 is the closest ring).
+  String _stateJson() {
+    final node = _node;
+    return jsonEncode({
+      'peerId': node?.peerId,
+      'knownPeers': [
+        for (final peer in node?.knownPeers.values ?? const <KnownPeer>[])
+          {
+            'id': peer.peerId,
+            'rtt': peer.rttMs,
+            'status': peer.status.name,
+            'ringIndex': peer.ringIndex,
+          },
+      ],
+      'rings': [
+        for (final ring in node?.rings ?? const <Ring>[])
+          {
+            'index': ring.index,
+            'primary': [
+              for (final member in ring.primaryMembers) member.peerId,
+            ],
+          },
+      ],
+      'isSupernode': node?.isSupernode ?? false,
+      'clusterLeader': node?.clusterLeader,
+      'activeStreams': [...?node?.activeStreams.keys],
+      'wireLog': _wireLogEnabled ? _wireLogEntries : const <dynamic>[],
+    });
   }
 
   Future<void> _renderRemoteStream(
@@ -227,5 +328,22 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
                   ),
                 ),
     );
+  }
+}
+
+/// e2e affordance: records outgoing signaling messages while delegating to
+/// the client the node bootstrapped with (the bootstrap register/get_peers
+/// sends happen before this wrapper is installed and are not recorded).
+class _RecordingSignalSink implements SignalSink {
+  _RecordingSignalSink(this._inner, this._peerId, this._record);
+
+  final SignalSink _inner;
+  final String _peerId;
+  final void Function(String dir, String peerId, String raw) _record;
+
+  @override
+  void send(Map<String, dynamic> message) {
+    _record('send', _peerId, jsonEncode(message));
+    _inner.send(message);
   }
 }
