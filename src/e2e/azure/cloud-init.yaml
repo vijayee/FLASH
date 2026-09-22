@@ -1,0 +1,135 @@
+#cloud-config
+# Azure VM bootstrap for the FLASH geo e2e suite (Task 8).
+#
+# This file is a TEMPLATE: provision.sh substitutes __FLASH_ROLE__ ("peer"
+# or "lab") and passes the result to `az vm create --custom-data`. The two
+# roles differ only in the Flutter toolchain (lab VM only — the desktop
+# peer is built ON the lab VM; ~10GB, fine on the 64GB os disk).
+#
+# What every VM gets:
+#   - Node 20 (nodesource) at /usr/bin/node — signaling server + serve.mjs
+#     + cdp-relay.mjs all run on it.
+#   - Playwright's Chromium under /opt/ms-playwright (root-installed with
+#     --with-deps so the apt dependency set lands too; azureuser only needs
+#     read access). agent.sh resolves the binary from there.
+#   - xvfb, curl, git, jq.
+#   - Two demo HTTP servers (systemd units below, restarted by provision.sh
+#     after it scps the demo bundles into /opt/flash):
+#       flash-demo      :80   -> the JS demo (serve.mjs default mode,
+#                               serving src/js/examples/browser at /)
+#       flash-demo-dart :8090 -> the staged dart-web bundle (serve.mjs
+#                               DART_ROOT mode)
+#     Both bind 0.0.0.0 so any VM (and the orchestrator) can load a demo
+#     from any VM's origin. Port 80 needs CAP_NET_BIND_SERVICE for the
+#     non-root unit — ambient capabilities handle it.
+#
+# Deliberately NOT here: Chromium instance management. Each VM's headless
+# Chromium is launched by the orchestrator over SSH (azure/agent.sh) so its
+# lifecycle tracks a test run — systemd is reserved for the long-lived
+# services (signaling on the lab VM, the two demo servers everywhere).
+#
+# NOTE on Ubuntu 24.04 + chromium: apt's chromium is a snap (bad in
+# headless VMs), so the Playwright-managed build is used instead, matching
+# the local netns rig (netns-up.sh resolves the Playwright chromium too).
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - curl
+  - git
+  - xvfb
+  - ca-certificates
+  - jq
+  - dnsutils
+
+write_files:
+  # Role marker read by the runcmd below (and by later tasks' tooling).
+  - path: /etc/flash/role
+    permissions: '0444'
+    content: __FLASH_ROLE__
+
+  # Flutter SDK on PATH (login shells; the lab build in Task 10 uses it).
+  - path: /etc/profile.d/flutter.sh
+    permissions: '0644'
+    content: |
+      # Flutter SDK (lab VM only; the dir is absent on peer VMs).
+      if [ -d /opt/flutter/bin ]; then
+        export PATH="/opt/flutter/bin:$PATH"
+      fi
+
+  # JS demo (serve.mjs default mode) on port 80. AmbientCapabilities lets
+  # the azureuser-owned node bind the privileged port.
+  - path: /etc/systemd/system/flash-demo.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=FLASH e2e JS demo server (port 80)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=azureuser
+      WorkingDirectory=/opt/flash/src/e2e/scripts
+      AmbientCapabilities=CAP_NET_BIND_SERVICE
+      ExecStart=/usr/bin/node /opt/flash/src/e2e/scripts/serve.mjs
+      Environment=PORT=80
+      Environment=HOST=0.0.0.0
+      Restart=always
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # Dart-web demo (serve.mjs DART_ROOT mode) on port 8090. The bundle is
+  # scped to every VM by provision.sh, so both servers start everywhere;
+  # agent.sh picks the page per its role argument.
+  - path: /etc/systemd/system/flash-demo-dart.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=FLASH e2e dart-web demo server (port 8090)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=azureuser
+      WorkingDirectory=/opt/flash/src/e2e/scripts
+      ExecStart=/usr/bin/node /opt/flash/src/e2e/scripts/serve.mjs
+      Environment=PORT=8090
+      Environment=HOST=0.0.0.0
+      Environment=DART_ROOT=/opt/flash/src/e2e/build/dart-web
+      Restart=always
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # Node 20 (nodesource). /usr/bin/node afterwards — referenced by every
+  # systemd unit and by agent.sh.
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  - apt-get install -y nodejs
+  # Playwright Chromium + its apt deps, as root, into a shared dir
+  # (PLAYWRIGHT_BROWSERS_PATH) so azureuser's agent.sh can resolve the
+  # binary. Version matches the e2e package's @playwright/test ^1.55.0.
+  - |
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+      npx -y playwright@1.55.0 install --with-deps chromium
+  # Lab-only: Flutter SDK + Linux desktop toolchain (clang/cmake/ninja/
+  # pkg-config/libgtk-3-dev) so the desktop peer is built ON the lab VM.
+  # ~10GB over the base image — the VM is created with a 64GB os disk.
+  - |
+    if [ "$(cat /etc/flash/role)" = "lab" ]; then
+      apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+      git clone --depth 1 --branch stable \
+        https://github.com/flutter/flutter.git /opt/flutter
+      /opt/flutter/bin/flutter --version
+      git config --global --add safe.directory /opt/flutter
+    fi
+  # Unit files are in place; the /opt/flash tree arrives later (provision.sh
+  # scps it), so enable now and let provision.sh restart after the upload.
+  - systemctl daemon-reload
+  - systemctl enable flash-demo.service flash-demo-dart.service

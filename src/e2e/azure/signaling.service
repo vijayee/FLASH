@@ -1,0 +1,20 @@
+[Unit]
+# FLASH e2e signaling server — lab VM only (Task 8). Peers dial
+# ws://<lab-ip>:8080; the orchestrator passes that URL through the demo's
+# window.__meridian.connect() hook, so nothing here is demo-specific.
+Description=FLASH e2e signaling server (ws://:8080)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/opt/flash/signaling-server
+ExecStart=/usr/bin/node /opt/flash/signaling-server/server.js
+Environment=PORT=8080
+Environment=HOST=0.0.0.0
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
