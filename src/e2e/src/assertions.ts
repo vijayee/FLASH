@@ -21,11 +21,11 @@ export function expectKnownPeer(state: PeerState, peerId: string): void {
 }
 
 /**
- * Asserts ring placement is monotonic with latency: a peer whose RTT should
- * put it at least `minRing` rings out must not sit closer. Inner rings are
+ * Asserts ring placement tracks latency: a peer whose RTT should put it at
+ * least `minRing` rings out must not sit closer. Inner rings are
  * lower-index (ring 0 is the closest); an unplaced peer (null) fails.
  */
-export function expectRingMonotonic(
+export function expectRingAtLeast(
   state: PeerState,
   peerId: string,
   minRing: number,

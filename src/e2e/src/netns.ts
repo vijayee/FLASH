@@ -24,6 +24,8 @@ export type NetnsDelayMatrix = Record<
   number
 >;
 
+const DELAY_KEYS = ['eu-us', 'eu-asia', 'us-asia'] as const;
+
 export interface NetnsTopology {
   /** Host bridge the namespace veths attach to (e.g. `mrd-br0`). */
   bridge: string;
@@ -57,21 +59,42 @@ export function loadTopology(json: unknown): NetnsTopology {
     seenRegions.add(typed.region);
     return typed;
   });
-  if (typeof delaysMs !== 'object' || delaysMs === null) {
-    throw new Error('topology.delaysMs must be an object');
-  }
-  const delays = delaysMs as Record<string, unknown>;
-  for (const key of ['eu-us', 'eu-asia', 'us-asia'] as const) {
-    const value = delays[key];
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-      throw new Error(`topology.delaysMs.${key} must be a non-negative ms`);
-    }
-  }
+  const delays = assertDelayMatrix(delaysMs);
   return {
     bridge,
     peers: parsed,
-    delaysMs: delaysMs as NetnsDelayMatrix,
+    delaysMs: delays,
   };
+}
+
+/**
+ * Rebuilds the delay matrix key-by-key instead of trusting the input cast:
+ * an unknown region key (rig/script drift) fails loudly here rather than
+ * silently testing against the wrong delay set.
+ */
+function assertDelayMatrix(value: unknown): NetnsDelayMatrix {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('topology.delaysMs must be an object');
+  }
+  const entries = value as Record<string, unknown>;
+  const unknownKeys = Object.keys(entries).filter(
+    (key) => !DELAY_KEYS.includes(key as (typeof DELAY_KEYS)[number]),
+  );
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `topology.delaysMs has unknown region keys (${unknownKeys.join(', ')}); ` +
+        `accepted keys: ${DELAY_KEYS.join(', ')}`,
+    );
+  }
+  const matrix = {} as NetnsDelayMatrix;
+  for (const key of DELAY_KEYS) {
+    const ms = entries[key];
+    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) {
+      throw new Error(`topology.delaysMs.${key} must be a non-negative ms`);
+    }
+    matrix[key] = ms;
+  }
+  return matrix;
 }
 
 function assertNetnsPeer(value: unknown): NetnsPeer {

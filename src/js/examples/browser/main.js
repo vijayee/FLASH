@@ -69,6 +69,12 @@ if (wireLogEnabled && !SignalingClient.prototype.connect.__wireLogged) {
 // channel's send and receive path be recorded without touching the library.
 function installWireLog(target) {
   if (!wireLogEnabled) return;
+  // The seam is library-internal and can move; degrade the wirelog (the
+  // signaling half is still wrapped above) instead of killing the demo.
+  if (typeof target._setupDataChannelHandlers !== 'function') {
+    console.warn('[wirelog] setup seam not found; wirelog disabled');
+    return;
+  }
   const origSetup = target._setupDataChannelHandlers.bind(target);
   target._setupDataChannelHandlers = (dc, peerId) => {
     origSetup(dc, peerId);

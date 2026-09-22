@@ -45,6 +45,8 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   // Bounded record of observed wire traffic (signaling sends + DataChannel
   // receives — the only directions reachable from the example without a
   // library seam), surfaced through window.__meridianState().wireLog.
+  // Wirelog parity: the JS demo's wirelog covers both DataChannel
+  // directions; the Dart side's send path needs a library seam (Task 6).
   final _wireLogEntries = <Map<String, dynamic>>[];
   final _wrappedChannels = <rtc.RTCDataChannel>{};
   late final bool _wireLogEnabled = Uri.base.queryParameters['wirelog'] == '1';
@@ -56,6 +58,10 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   @override
   void initState() {
     super.initState();
+    // Installed at startup — before/parallel to the connect attempt — so
+    // the global is defined (reporting initialized:false, plus any error)
+    // while connecting and after a failed connect too.
+    installStateHook(_stateJson);
     _start();
   }
 
@@ -99,14 +105,12 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   }
 
   /// e2e seam (Task 1): records subsequent signaling sends by wrapping the
-  /// node's [SignalSink] and exposes the state snapshot + wire log to
-  /// Playwright via `window.__meridianState()`.
+  /// node's [SignalSink] (the state hook itself is installed at startup).
   void _installE2eHooks(MeridianNode node) {
     final sink = node.signalChannel;
     if (_wireLogEnabled && sink != null) {
       node.signalChannel = _RecordingSignalSink(sink, node.peerId, _recordWire);
     }
-    installStateHook(_stateJson);
   }
 
   void _wrapDataChannels() {
@@ -151,10 +155,14 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   }
 
   /// Snapshot over the node's public fields, mirroring the JS demo's
-  /// `window.__meridian.state()` shape (ring 0 is the closest ring).
+  /// `window.__meridian.state()` shape (ring 0 is the closest ring). Unlike
+  /// the JS hook — which returns null until connected — this always
+  /// resolves, flagging `initialized` so e2e can tell the states apart.
   String _stateJson() {
     final node = _node;
     return jsonEncode({
+      'initialized': node != null,
+      'error': _error,
       'peerId': node?.peerId,
       'knownPeers': [
         for (final peer in node?.knownPeers.values ?? const <KnownPeer>[])

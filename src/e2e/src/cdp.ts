@@ -7,6 +7,11 @@ import { chromium } from '@playwright/test';
  * Chromium agent on an Azure VM (Task 9). The returned Browser owns the
  * connection; closing it detaches from the agent without killing it.
  */
-export function connectOverCDP(endpoint: string): Promise<Browser> {
-  return chromium.connectOverCDP(endpoint);
+export function connectOverCDP(
+  endpoint: string,
+  // Cold netns Chromium can take tens of seconds to accept CDP; the
+  // Playwright default (30s) is tight for the first boot.
+  { timeoutMs = 60_000 }: { timeoutMs?: number } = {},
+): Promise<Browser> {
+  return chromium.connectOverCDP(endpoint, { timeout: timeoutMs });
 }
