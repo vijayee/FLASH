@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Meridian-WebRTC demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 60rem; }
+      video { width: 240px; margin: 0.25rem; background: #222; }
+      pre { background: #f4f4f4; padding: 0.5rem; max-height: 12rem; overflow: auto; }
+      fieldset { border: 1px solid #ccc; margin-bottom: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Meridian node</h1>
+    <p>
+      Peer id: <code id="peer-id">(not connected)</code>
+      &mdash; <span id="status">idle</span>
+    </p>
+    <fieldset>
+      <legend>Connect</legend>
+      <input id="signal-url" size="40" value="ws://localhost:8080" />
+      <button id="connect">Connect</button>
+      <button id="disconnect" disabled>Disconnect</button>
+    </fieldset>
+    <fieldset>
+      <legend>Actions</legend>
+      <button id="find" disabled>Find closest node</button>
+      <button id="stream" disabled>Stream to peer</button>
+    </fieldset>
+    <div id="videos">
+      <video id="local" autoplay playsinline muted></video>
+    </div>
+    <pre id="log"></pre>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

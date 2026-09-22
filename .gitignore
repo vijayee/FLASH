@@ -1,0 +1,13 @@
+# Dart/Flutter
+.dart_tool/
+build/
+pubspec.lock
+
+# Node
+node_modules/
+coverage/
+
+# IDE & tooling
+.idea/
+.claude/
+*.log

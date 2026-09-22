@@ -1,0 +1,28 @@
+name: meridian_webrtc
+description: P2P video/audio streaming using the Meridian overlay over WebRTC.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_webrtc: ^0.12.0
+  web_socket_channel: ^3.0.0
+  uuid: ^4.0.0
+  collection: ^1.18.0
+  logging: ^1.2.0
+  # HTTP RTT probing on the web platform (spec §9.1) where dart:io is
+  # unavailable. Native platforms probe via dart:io behind a conditional
+  # import; this dependency is only linked into web builds.
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: false

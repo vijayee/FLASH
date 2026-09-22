@@ -1,0 +1,21 @@
+{
+  "name": "meridian-signaling-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal WebSocket signaling server for the Meridian WebRTC overlay",
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  }
+}
