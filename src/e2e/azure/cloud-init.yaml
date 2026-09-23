@@ -122,7 +122,7 @@ runcmd:
   # pkg-config/libgtk-3-dev) so the desktop peer is built ON the lab VM.
   # ~10GB over the base image - the VM is created with a 64GB os disk.
   - |
-    if [ "(cat /etc/flash/role)"= "ab"]; then
+    if [ "$(cat /etc/flash/role)" = "lab" ]; then
       apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
       git clone --depth 1 --branch stable \
         https://github.com/flutter/flutter.git /opt/flutter
