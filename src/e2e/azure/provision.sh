@@ -261,9 +261,13 @@ ssh_ready() { # <ip> [timeoutSec] — cloud-init status --wait blocks until
   #             --custom-data is fully applied.
   local ip=$1 deadline=$((SECONDS + ${2:-1800}))
   while [ $SECONDS -lt $deadline ]; do
-    if ssh -o ConnectTimeout=8 -o BatchMode=yes "$ADMIN_USER@$ip" \
-      'cloud-init status --wait >/dev/null && echo CLOUD_INIT_DONE' 2>/dev/null |
-      grep -q CLOUD_INIT; then
+    # Capture before grepping: `ssh | grep -q` races SIGPIPE — grep exits on
+    # first match, ssh dies mid-write, pipefail flips the pipeline non-zero
+    # on a successful check.
+    local out
+    out=$(ssh -o ConnectTimeout=8 -o BatchMode=yes "$ADMIN_USER@$ip" \
+      'cloud-init status --wait >/dev/null && echo CLOUD_INIT_DONE' 2>/dev/null || true)
+    if printf '%s' "$out" | grep -q CLOUD_INIT; then
       return 0
     fi
     sleep 10
