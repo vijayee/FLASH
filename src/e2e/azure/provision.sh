@@ -265,7 +265,7 @@ ssh_ready() { # <ip> [timeoutSec] — cloud-init status --wait blocks until
     # first match, ssh dies mid-write, pipefail flips the pipeline non-zero
     # on a successful check.
     local out
-    out=$(ssh -o ConnectTimeout=8 -o BatchMode=yes "$ADMIN_USER@$ip" \
+    out=$(ssh -o ConnectTimeout=8 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$ADMIN_USER@$ip" \
       'cloud-init status --wait >/dev/null && echo CLOUD_INIT_DONE' 2>/dev/null || true)
     if printf '%s' "$out" | grep -q CLOUD_INIT; then
       return 0
