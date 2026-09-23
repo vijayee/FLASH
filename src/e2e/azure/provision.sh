@@ -306,7 +306,7 @@ upload_lab() { # <ip> — lab-only extras: signaling + desktop peer bundle
     "$repo_root/src/signaling-server/package.json" \
     "$repo_root/src/signaling-server/package-lock.json" \
     /opt/flash/signaling-server/
-  run_scp "$ip" "$here/signaling.service" :/tmp/flash-signaling.service
+  run_scp "$ip" "$here/signaling.service" /tmp/flash-signaling.service
   run_ssh "$ip" 'sudo mv /tmp/flash-signaling.service /etc/systemd/system/flash-signaling.service'
   # Linux desktop peer bundle (built locally by build-dart-linux.sh; Task 10
   # runs it under xvfb on this VM).
