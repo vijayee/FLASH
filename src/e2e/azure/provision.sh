@@ -204,8 +204,14 @@ create_vm() { # <name> <location> <role>
       echo "provision: VM $name in $location could not be created — skipping region" >&2
       return 1
     }
-  # az vm create's default NSG is named after the VM.
-  apply_nsg "$name"
+  # az vm create's auto-created NSG is named <vm>NSG (not <vm>) — resolve
+  # the NIC's actual NSG, same as the already-exists branch.
+  local nic_id nsg
+  nic_id=$(az vm show -g "$AZ_RESOURCE_GROUP" -n "$name" \
+    --query "networkProfile.networkInterfaces[0].id" -o tsv)
+  nsg=$(az network nic show --ids "$nic_id" \
+    --query "networkSecurityGroup.id" -o tsv | xargs basename)
+  apply_nsg "$nsg"
   if [ "$DRY_RUN" = 0 ]; then
     az vm wait -g "$AZ_RESOURCE_GROUP" -n "$name" --updated >/dev/null
     echo "VM $name provisioned"
@@ -253,7 +259,7 @@ done
 # --- post-boot: wait for ssh + cloud-init, upload the /opt/flash tree -------
 ssh_ready() { # <ip> [timeoutSec] — cloud-init status --wait blocks until
   #             --custom-data is fully applied.
-  local ip=$1 deadline=$((SECONDS + ${2:-900}))
+  local ip=$1 deadline=$((SECONDS + ${2:-1800}))
   while [ $SECONDS -lt $deadline ]; do
     if ssh -o ConnectTimeout=8 -o BatchMode=yes "$ADMIN_USER@$ip" \
       'cloud-init status --wait >/dev/null && echo CLOUD_INIT_DONE' 2>/dev/null |
@@ -325,7 +331,7 @@ for vm in "${!IP[@]}"; do
     continue
   fi
   echo "--- post-boot: $vm ($ip)"
-  ssh_ready "$ip" || die "$vm: ssh/cloud-init never became ready within 900s"
+  ssh_ready "$ip" || die "$vm: ssh/cloud-init never became ready within 1800s"
   upload_vm "$ip"
   if [ "$vm" = flash-e2e-lab ]; then
     upload_lab "$ip"
