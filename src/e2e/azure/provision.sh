@@ -196,7 +196,14 @@ create_vm() { # <name> <location> <role>
     --generate-ssh-keys \
     --public-ip-sku Standard \
     --os-disk-size-gb "$OS_DISK_GB" \
-    --custom-data "$custom_data"
+    --custom-data "$custom_data" || {
+      # Capacity restrictions (SkuNotAvailable) and region-eligibility
+      # (RequestDisallowedByAzure) only surface at create time —
+      # list-skus reports no restriction for both. Skip the region and
+      # keep provisioning the rest.
+      echo "provision: VM $name in $location could not be created — skipping region" >&2
+      return 1
+    }
   # az vm create's default NSG is named after the VM.
   apply_nsg "$name"
   if [ "$DRY_RUN" = 0 ]; then
@@ -207,10 +214,25 @@ create_vm() { # <name> <location> <role>
   fi
 }
 
+created_regions=()
 for region in "${regions[@]}"; do
-  create_vm "flash-e2e-$region" "$region" peer
+  if create_vm "flash-e2e-$region" "$region" peer; then
+    created_regions+=("$region")
+  fi
 done
-create_vm "flash-e2e-lab" "$lab_location" lab
+[ ${#created_regions[@]} -gt 0 ] ||
+  die "no peer VM could be created in any AZ_REGIONS entry (capacity or region eligibility)"
+regions=("${created_regions[@]}")
+echo "peer regions provisioned: ${regions[*]}"
+if ! create_vm "flash-e2e-lab" "$lab_location" lab; then
+  # The lab VM hosts signaling — mandatory. Fall back to a provisioned
+  # peer region before giving up.
+  for fallback in "${regions[@]}"; do
+    echo "lab VM could not be created in $lab_location — trying $fallback"
+    if create_vm "flash-e2e-lab" "$fallback" lab; then lab_location=$fallback; break; fi
+  done
+  [ "$lab_location" != "${regions[0]}" ] || die "the lab VM could not be created in any provisioned region"
+fi
 
 # --- public IPs --------------------------------------------------------------
 declare -A IP
