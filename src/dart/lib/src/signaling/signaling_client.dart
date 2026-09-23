@@ -18,7 +18,7 @@ abstract interface class SignalSink {
 /// registration plus initial peer discovery, and relays every signaling
 /// message into the owning [MeridianNode]'s handler methods.
 class SignalingClient implements SignalSink {
-  static final Logger _logger = Logger('meridian_webrtc.signaling');
+  static final Logger _logger = Logger('flash_webrtc.signaling');
 
   final MeridianNode node;
   WebSocketChannel? _channel;

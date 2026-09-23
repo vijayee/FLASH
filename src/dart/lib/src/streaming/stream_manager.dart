@@ -50,7 +50,7 @@ class _PendingMediaAnswer {
 /// PeerConnection built through the shared rtc-utils factory (stun +
 /// turn).
 class StreamManager {
-  static final Logger _logger = Logger('meridian_webrtc.media');
+  static final Logger _logger = Logger('flash_webrtc.media');
 
   final MeridianNode node;
 

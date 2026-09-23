@@ -23,7 +23,7 @@ import '../utils/crypto_utils.dart';
 /// (single-member clusters exempt) — if no Raft activity confirms
 /// leadership, a re-election actually occurs.
 class RaftConsensus {
-  static final Logger _logger = Logger('meridian_webrtc.raft');
+  static final Logger _logger = Logger('flash_webrtc.raft');
 
   final MeridianNode node;
 

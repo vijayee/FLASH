@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
-import 'package:meridian_webrtc/meridian_webrtc.dart';
-import 'package:meridian_webrtc/src/streaming/sfu_forwarder.dart';
+import 'package:flash_webrtc/flash_webrtc.dart';
+import 'package:flash_webrtc/src/streaming/sfu_forwarder.dart';
 
 import 'fakes.dart';
 

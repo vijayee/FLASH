@@ -1,8 +1,8 @@
-# meridian_webrtc
+# flash_webrtc
 
 Flutter library for **FLASH** — peer-to-peer video/audio streaming built on the [Meridian](https://github.com/vijayee/FLASH) overlay over WebRTC. No media servers: peers organize into latency-ordered multi-resolution rings, discover each other by gossip, and route closest-peer / central-leader / multi-constraint queries by direct latency measurement. Runs on Android, iOS, web, macOS, Windows, and Linux from one codebase, via [`flutter_webrtc`](https://pub.dev/packages/flutter_webrtc).
 
-A JavaScript twin (`meridian-webrtc` on npm) speaks the same wire protocol, so Flutter and browser peers interoperate through one signaling server.
+A JavaScript twin (`flash-webrtc` on npm) speaks the same wire protocol, so Flutter and browser peers interoperate through one signaling server.
 
 ## Install
 

@@ -1,5 +1,5 @@
 name: meridian_example
-description: Minimal example app for the meridian_webrtc package.
+description: Minimal example app for the flash_webrtc package.
 publish_to: none
 
 environment:
@@ -8,7 +8,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  meridian_webrtc:
+  flash_webrtc:
     path: ..
   flutter_webrtc: ^0.12.0
   uuid: ^4.0.0

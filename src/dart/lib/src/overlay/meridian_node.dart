@@ -29,7 +29,7 @@ import 'rtt_measurement.dart';
 /// routing, supernode/Raft and media streaming plug in at the documented
 /// seams in a later task.
 class MeridianNode {
-  static final Logger _logger = Logger('meridian_webrtc.node');
+  static final Logger _logger = Logger('flash_webrtc.node');
 
   final String peerId;
   final MeridianConfig config;

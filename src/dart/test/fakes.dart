@@ -1,4 +1,4 @@
-// Test doubles for the meridian_webrtc package: in-memory
+// Test doubles for the flash_webrtc package: in-memory
 // RTCPeerConnection / RTCDataChannel / MediaStream stand-ins (the real
 // flutter_webrtc bindings need platform channels unavailable under
 // flutter test) plus wiring helpers connecting two nodes' channels.
@@ -8,7 +8,7 @@ import 'dart:convert';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 
-import 'package:meridian_webrtc/src/overlay/meridian_node.dart';
+import 'package:flash_webrtc/src/overlay/meridian_node.dart';
 
 /// Minimal in-memory RTCPeerConnection. Every member is a no-op; media
 /// and data-channel creation throw unless a test overrides them.

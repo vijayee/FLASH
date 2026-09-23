@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
-import 'package:meridian_webrtc/meridian_webrtc.dart';
+import 'package:flash_webrtc/flash_webrtc.dart';
 import 'package:uuid/uuid.dart';
 
 // e2e read seam (Task 1): `window.__meridianState()` on web builds; native

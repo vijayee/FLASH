@@ -23,7 +23,7 @@ class PendingConnection {
 /// config, the offerer's full connect handshake (with glare resolution on
 /// the answering side), and answering of connect and probe offers.
 class PeerConnectionManager {
-  static final Logger _logger = Logger('meridian_webrtc.pc');
+  static final Logger _logger = Logger('flash_webrtc.pc');
 
   final MeridianNode node;
 

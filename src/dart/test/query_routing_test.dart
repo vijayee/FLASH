@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:meridian_webrtc/meridian_webrtc.dart';
+import 'package:flash_webrtc/flash_webrtc.dart';
 
 import 'fakes.dart';
 

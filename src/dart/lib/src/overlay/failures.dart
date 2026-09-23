@@ -13,7 +13,7 @@ import 'meridian_node.dart';
 // synchronous failure path so the app-facing onPeerDisconnected
 // notification is never delayed by a 30s election query.
 
-final Logger _logger = Logger('meridian_webrtc.failures');
+final Logger _logger = Logger('flash_webrtc.failures');
 
 /// Failure recovery entry point (spec §8). Never awaited by the caller.
 Future<void> handleFailureRecovery(MeridianNode node, String peerId) async {

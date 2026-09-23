@@ -93,7 +93,7 @@ typedef _ConstraintMeasurement = ({
 /// central-leader and multi-constraint families, routed hop-by-hop with
 /// `probe_request` exchanges against ring primaries.
 class QueryRouting {
-  static final Logger _logger = Logger('meridian_webrtc.query');
+  static final Logger _logger = Logger('flash_webrtc.query');
 
   final MeridianNode node;
 
