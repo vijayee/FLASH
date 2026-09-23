@@ -74,6 +74,7 @@ CDP_RELAY_PORT=9223
 STATE_ROOT=/tmp/mrd-netns
 SLIRP_API="${0%/*}/slirp-api.mjs"
 CDP_RELAY="${0%/*}/cdp-relay.mjs"
+UDP_PROBE="${0%/*}/udp-probe.mjs"
 
 # The slirp gateway inside the netns (maps to the host's loopback).
 GATEWAY=10.0.2.2
@@ -156,6 +157,27 @@ if [ "${1:-}" = "__child" ]; then
   tc qdisc add dev tap0 root netem delay "${half_ms}ms"
 
   tc qdisc show dev tap0 >"$region_dir/tc.txt" 2>&1
+
+  # Task 10 (forced-relay TURN spec, MRD_UDP_ALLOW=<ip>): starve the netns
+  # of outbound UDP so host/srflx candidates can never pair and ICE must
+  # fall back to the relay — everything on tap0's OUTPUT except UDP to the
+  # TURN server is dropped. The mapped root holds CAP_NET_ADMIN (verified:
+  # iptables-nft works inside this unshare), TCP is untouched (signaling,
+  # demo, CDP), and the TURN server's relayed address IS its own public IP,
+  # so the single ACCEPT rule covers the data channel too. Evidence (rules
+  # + one probe allowed / one probe blocked) lands in the region dir.
+  if [ -n "${MRD_UDP_ALLOW:-}" ]; then
+    iptables -A OUTPUT -o tap0 -p udp -d "$MRD_UDP_ALLOW" -j ACCEPT
+    iptables -A OUTPUT -o tap0 -p udp -j DROP
+    iptables -S OUTPUT >"$region_dir/iptables.txt" 2>&1
+    # Allowed path: the TURN server answers STUN binding requests.
+    node "$UDP_PROBE" "$MRD_UDP_ALLOW" "${MRD_TURN_PORT:-3478}" 4000 \
+      >"$region_dir/udp-allow.txt" 2>&1 || true
+    # Blocked path: a STUN probe anywhere else times out (here: the rig's
+    # own loopback mini-STUN through the slirp gateway).
+    node "$UDP_PROBE" "$GATEWAY" "${MRD_STUN_PORT:-3478}" 2000 \
+      >"$region_dir/udp-block.txt" 2>&1 || true
+  fi
 
   # The guest address as slirp4netns --configure assigned it (the
   # host-side script reads it for the hostfwd guest_addr).

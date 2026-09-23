@@ -55,7 +55,7 @@ write_files:
     content: |
       # Flutter SDK (lab VM only; the dir is absent on peer VMs).
       if [ -d /opt/flutter/bin ]; then
-        export PATH="opt/flutter/bin:$PATH"
+        export PATH="/opt/flutter/bin:$PATH"
       fi
 
   # JS demo (serve.mjs default mode) on port 80. AmbientCapabilities lets
@@ -124,10 +124,21 @@ runcmd:
   - |
     if [ "$(cat /etc/flash/role)" = "lab" ]; then
       apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+      # flutter_webrtc's libwebrtc aborts in ADM init on a machine with no
+      # sound device; a headless PulseAudio null sink satisfies it.
+      apt-get install -y pulseaudio
       git clone --depth 1 --branch stable \
         https://github.com/flutter/flutter.git /opt/flutter
       /opt/flutter/bin/flutter --version
       git config --global --add safe.directory /opt/flutter
+      # Task 10: TURN server for the forced-relay spec (turn.spec.ts). The
+      # NSG's allow-turn rules (provision.sh) open 3478 tcp+udp; the relay
+      # range rides the existing allow-ice-udp rule. Only the PACKAGE is
+      # installed here: /etc/turnserver.conf is applied by provision.sh
+      # post-boot (it must embed the lab VM's public IP, which is not known
+      # at custom-data render time and IMDS reports empty on this estate —
+      # see remote.ts), then coturn is restarted.
+      apt-get install -y coturn
     fi
   # Unit files are in place; the /opt/flash tree arrives later (provision.sh
   # scps it), so enable now and let provision.sh restart after the upload.

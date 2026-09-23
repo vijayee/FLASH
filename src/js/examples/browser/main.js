@@ -18,21 +18,35 @@ const renderedStreams = new Map(); // peerId -> rendered <video>
 // ?gossipMs=<n> overrides MERIDIAN_CONFIG.gossipPeriodMs so a local e2e
 // run converges in seconds instead of waiting out the 30s production
 // gossip period. ?stun=a,b overrides stunServers (the netns rig points
-// peers at a loopback mini-STUN through slirp). Invalid values fall back
-// to the library defaults.
+// peers at a loopback mini-STUN through slirp). ?turn=url,username,cred
+// (Task 10) appends ONE long-term-credential TURN entry to turnServers —
+// the shape the library's buildIceServers spreads into the RTCIceServer
+// list (src/js/src/rtc-utils.js: array of {urls, username, credential}).
+// The turn URL may not contain a comma (turn: URLs never do), so a plain
+// comma split parses all three fields. Invalid values fall back to the
+// library defaults (empty turnServers).
 const urlParams = new window.URLSearchParams(window.location.search);
 const gossipMsParam = Number(urlParams.get('gossipMs'));
 const mediaSrcParam = urlParams.get('mediaSrc');
 const stunParam = urlParams.get('stun');
+const turnParam = urlParams.get('turn');
 const stunOverride = stunParam
   ? stunParam.split(',').map((s) => s.trim()).filter(Boolean)
   : null;
+const turnFields = turnParam
+  ? turnParam.split(',').map((s) => s.trim())
+  : null;
+const turnOverride =
+  turnFields && turnFields[0] && turnFields[1] && turnFields[2]
+    ? { urls: turnFields[0], username: turnFields[1], credential: turnFields[2] }
+    : null;
 const DEMO_CONFIG = {
   ...MERIDIAN_CONFIG,
   ...(Number.isFinite(gossipMsParam) && gossipMsParam > 0
     ? { gossipPeriodMs: gossipMsParam }
     : {}),
   ...(stunOverride ? { stunServers: stunOverride } : {}),
+  ...(turnOverride ? { turnServers: [turnOverride] } : {}),
 };
 
 // --- e2e wire log (?wirelog=1) -------------------------------------------

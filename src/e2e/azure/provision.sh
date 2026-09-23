@@ -165,6 +165,21 @@ apply_nsg() { # <nsg-name>
     --access Allow --protocol Udp \
     --source-address-prefixes '*' \
     --destination-port-ranges 1024-65535
+  # TURN (Task 10): STUN/TURN on 3478, both transports. Open to '*' — the
+  # TURN clients are the peer VMs' Chromium instances (and the orchestrator's
+  # netns rigs), whose public IPs are not known at provision time. Only the
+  # lab VM runs coturn (cloud-init lab role), but the rule is harmless on the
+  # peer NSGs and keeps apply_nsg single-sourced.
+  run az network nsg rule create -g "$AZ_RESOURCE_GROUP" --nsg-name "$nsg" \
+    --name allow-turn --priority 1050 --direction Inbound \
+    --access Allow --protocol Tcp \
+    --source-address-prefixes '*' \
+    --destination-port-ranges 3478
+  run az network nsg rule create -g "$AZ_RESOURCE_GROUP" --nsg-name "$nsg" \
+    --name allow-turn-udp --priority 1051 --direction Inbound \
+    --access Allow --protocol Udp \
+    --source-address-prefixes '*' \
+    --destination-port-ranges 3478
 }
 
 # --- VM creation -------------------------------------------------------------
@@ -302,7 +317,7 @@ upload_vm() { # <ip>  (all source paths are fixed below, per role)
   run_ssh "$ip" 'chmod +x /opt/flash/agent/agent.sh'
 }
 
-upload_lab() { # <ip> — lab-only extras: signaling + desktop peer bundle
+upload_lab() { # <ip> — lab-only extras: signaling + desktop peer bundle + coturn
   local ip=$1
   run_ssh "$ip" 'mkdir -p /opt/flash/signaling-server'
   run_scp "$ip" \
@@ -315,6 +330,16 @@ upload_lab() { # <ip> — lab-only extras: signaling + desktop peer bundle
   # Linux desktop peer bundle (built locally by build-dart-linux.sh; Task 10
   # runs it under xvfb on this VM).
   run_scp "$ip" "$repo_root/src/e2e/build/dart-linux" /opt/flash/
+  # Task 10: coturn for the forced-relay spec. cloud-init installs it on
+  # fresh lab VMs; this covers an ALREADY-provisioned lab VM (the conf is
+  # templated with this VM's public IP). Idempotent.
+  run_scp "$ip" "$here/turnserver.conf" /tmp/flash-turnserver.conf
+  run_ssh "$ip" \
+    "sudo apt-get install -y coturn >/dev/null && \
+     sudo sed \"s/__TURN_EXTERNAL_IP__/${IP[flash-e2e-lab]}/\" /tmp/flash-turnserver.conf | \
+       sudo tee /etc/turnserver.conf >/dev/null && \
+     sudo systemctl enable --now coturn >/dev/null 2>&1; \
+     sudo systemctl restart coturn"
 }
 
 start_services() { # <ip> <isLab:0|1>
