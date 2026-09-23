@@ -68,14 +68,14 @@ run() {
 }
 run_ssh() { # <ip> <shell-command>
   echo "+ ssh $ADMIN_USER@$1 -- $2"
-  if [ "$DRY_RUN" = 0 ]; then ssh "$ADMIN_USER@$1" "$2"; fi
+  if [ "$DRY_RUN" = 0 ]; then ssh -o StrictHostKeyChecking=accept-new "$ADMIN_USER@$1" "$2"; fi
 }
 run_scp() { # <ip> <src...> : <dst>
   local ip=$1; shift
   local dst=${*: -1}   # last argument is the remote destination
   local srcs=("${@:1:$#-1}")
   echo "+ scp -r ${srcs[*]} $ADMIN_USER@$ip:$dst"
-  if [ "$DRY_RUN" = 0 ]; then scp -r "${srcs[@]}" "$ADMIN_USER@$ip:$dst"; fi
+  if [ "$DRY_RUN" = 0 ]; then scp -r -o StrictHostKeyChecking=accept-new "${srcs[@]}" "$ADMIN_USER@$ip:$dst"; fi
 }
 
 die() { echo "provision: $*" >&2; exit 1; }
