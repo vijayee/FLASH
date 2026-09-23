@@ -284,17 +284,17 @@ upload_vm() { # <ip>  (all source paths are fixed below, per role)
   run_scp "$ip" \
     "$repo_root/src/js/examples/browser/index.html" \
     "$repo_root/src/js/examples/browser/main.js" \
-    :/opt/flash/src/js/examples/browser/
-  run_scp "$ip" "$repo_root/src/js/src" :/opt/flash/src/js/
-  run_scp "$ip" "$repo_root/src/e2e/fixtures" :/opt/flash/src/e2e/
+    /opt/flash/src/js/examples/browser/
+  run_scp "$ip" "$repo_root/src/js/src" /opt/flash/src/js/
+  run_scp "$ip" "$repo_root/src/e2e/fixtures" /opt/flash/src/e2e/
   run_scp "$ip" \
     "$repo_root/src/e2e/scripts/serve.mjs" \
     "$repo_root/src/e2e/scripts/cdp-relay.mjs" \
-    :/opt/flash/src/e2e/scripts/
+    /opt/flash/src/e2e/scripts/
   # Staged dart-web bundle (both demo servers run on every VM; agent.sh
   # picks the page per its role argument).
-  run_scp "$ip" "$repo_root/src/e2e/build/dart-web" :/opt/flash/src/e2e/build/
-  run_scp "$ip" "$here/agent.sh" :/opt/flash/agent/
+  run_scp "$ip" "$repo_root/src/e2e/build/dart-web" /opt/flash/src/e2e/build/
+  run_scp "$ip" "$here/agent.sh" /opt/flash/agent/
   run_ssh "$ip" 'chmod +x /opt/flash/agent/agent.sh'
 }
 
@@ -305,12 +305,12 @@ upload_lab() { # <ip> — lab-only extras: signaling + desktop peer bundle
     "$repo_root/src/signaling-server/server.js" \
     "$repo_root/src/signaling-server/package.json" \
     "$repo_root/src/signaling-server/package-lock.json" \
-    :/opt/flash/signaling-server/
+    /opt/flash/signaling-server/
   run_scp "$ip" "$here/signaling.service" :/tmp/flash-signaling.service
   run_ssh "$ip" 'sudo mv /tmp/flash-signaling.service /etc/systemd/system/flash-signaling.service'
   # Linux desktop peer bundle (built locally by build-dart-linux.sh; Task 10
   # runs it under xvfb on this VM).
-  run_scp "$ip" "$repo_root/src/e2e/build/dart-linux" :/opt/flash/
+  run_scp "$ip" "$repo_root/src/e2e/build/dart-linux" /opt/flash/
 }
 
 start_services() { # <ip> <isLab:0|1>
