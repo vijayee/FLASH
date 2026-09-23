@@ -90,10 +90,6 @@ foreign UDP reply). Use 18080/3479 unless you know the defaults are free.
 
 ## Not covered by automation (manual)
 
-- **A real multi-region browser session end-to-end.** The Azure
-  provisioning (below) builds the rig; driving Task 9's `geo.spec.ts`
-  against it needs `az` + a provisioned resource group and is not run
-  automatically anywhere. Everything local substitutes *scripted* latency.
 - **TURN forced-relay.** `coturn` is not yet provisioned (no
   `turnserver.conf` deployed, lab VM doesn't run it); the
   outbound-UDP-blocked → `relay`-candidate assertion has no e2e coverage.
@@ -118,13 +114,34 @@ foreign UDP reply). Use 18080/3479 unless you know the defaults are free.
 | JS syntax | `node --check` on all 17 `.js` under `src/js/src` + `src/signaling-server` | clean |
 | Dart | `flutter analyze` / `flutter test` / `dart format --output=none --set-exit-if-changed .` | 0 issues / 57 passed / clean |
 | Signaling server | `npm test` | 15 passed |
+| geo suite (Task 9) | `E2E_GEO=1 E2E_SIGNALING_PORT=18080 npx playwright test test/geo.spec.ts` | 5 passed (58.5s) — measured RTTs: centralus↔swedencentral ~130ms, centralus↔koreacentral ~160ms, swedencentral↔koreacentral ~250-290ms; media ICE connected `srflx`↔`srflx` (156ms pair RTT) |
 
 ## Azure geo suite (Task 8+)
 
-Real-geography variant of the netns rig: 3 regional peer VMs (eastus,
-westeurope, southeastasia) + 1 lab VM (signaling, Flutter desktop peer,
-later coturn), each a `Standard_B2s` Ubuntu 24.04 VM. Instead of netem
-delays, the latency is *real* — the peers are on different continents.
+Real-geography variant of the netns rig: 3 regional peer VMs
+(flash-e2e-centralus, flash-e2e-swedencentral, flash-e2e-koreacentral) + 1
+lab VM (flash-e2e-lab: signaling, Flutter desktop peer, later coturn), each
+a `Standard_B2s` Ubuntu 24.04 VM. Instead of netem delays, the latency is
+*real* — the peers are on different continents (approx RTT matrix:
+centralus↔swedencentral ~130ms, centralus↔koreacentral ~160ms,
+swedencentral↔koreacentral ~250-290ms measured).
+
+### Run
+
+```
+E2E_GEO=1 E2E_SIGNALING_PORT=18080 npx playwright test test/geo.spec.ts
+```
+
+Opt-in only (`@geo` titles; the config's `testIgnore` excludes
+`geo.spec.ts` from local runs, and the spec itself skips without
+`E2E_GEO=1`). Requires the provisioned estate; nothing is re-provisioned —
+agents are raised over SSH for the run and torn down after it (see
+`src/remote.ts`). Note the demo pages load at the agent's ready-line origin
+(the VM's PRIVATE address, which is what Chromium was launched with as
+`--unsafely-treat-insecure-origin-as-secure`): Chrome 140 blocks navigation
+to insecure IP origins that are not in that flag's list, and IMDS reports
+an empty publicIpAddress on the estate — the treated-secure origin must
+match the address bar exactly.
 
 ### Prereqs
 

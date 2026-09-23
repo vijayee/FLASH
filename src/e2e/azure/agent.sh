@@ -4,9 +4,23 @@
 # Chromium instance lives exactly as long as the run that owns it, and a
 # dropped SSH session tears both Chromium and its CDP relay down with it).
 #
-# Usage (on the VM):  agent.sh <js|dart>
+# Usage (on the VM):  agent.sh <js|dart> [origin]
 #   js   -> the JS demo page   http://<vm-ip>/        (flash-demo,  port 80)
 #   dart -> the dart-web page  http://<vm-ip>:8090/  (flash-demo-dart)
+#
+# `origin` (optional override): the EXACT address-bar origin to mark
+# treated-secure. The built-in IMDS lookup below reports an EMPTY
+# publicIpAddress on the flash-e2e estate (verified across API versions), so
+# without the override the flag carries the private fallback (http://10.0.0.x)
+# — and a MISMATCHED treated-secure origin makes Chrome 140 block navigation
+# to every other insecure IP origin with net::ERR_BLOCKED_BY_CLIENT (verified
+# empirically on flash-e2e-centralus: with the matching origin both the demo
+# page and remote IPs load; with the mismatched private origin every
+# http://<ip> navigation is blocked). The geo suite therefore LOADS THE DEMO
+# AT THE READY-LINE ORIGIN (see src/remote.ts's demoOrigin) — pages work
+# through the private address because the demo servers listen on 0.0.0.0 —
+# and the override exists for future re-provisions that fix the IMDS lookup
+# or dial a public origin.
 #
 # This is the Azure analogue of the netns rig's child mode
 # (src/e2e/scripts/netns-up.sh __child), minus everything netns-specific:
@@ -35,15 +49,6 @@ OPT_ROOT=/opt/flash
 PLAYWRIGHT_ROOT=/opt/ms-playwright
 PROFILE_ROOT="$OPT_ROOT/agent/profile-$role"
 
-# --- this VM's public IP (Azure IMDS, non-routable from outside; falls
-# back to the first private address, which still works VM-to-VM over the
-# vnet if the topology is ever switched to private endpoints).
-vm_ip=$(curl -fsS -m 5 -H Metadata:true \
-  'http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-02-01&format=text' \
-  || true)
-[ -n "$vm_ip" ] || vm_ip=$(hostname -I | awk '{print $1}')
-[ -n "$vm_ip" ] || { echo "agent: cannot determine this VM's IP" >&2; exit 1; }
-
 # --- chromium: the Playwright-managed build installed by cloud-init.
 # Prefer the full chromium binary (the headless-shell build lacks some
 # media paths the fake-device flag relies on).
@@ -51,10 +56,21 @@ chrome_bin=$(ls -1 "$PLAYWRIGHT_ROOT"/chromium-*/chrome-linux/chrome 2>/dev/null
 [ -n "$chrome_bin" ] && [ -x "$chrome_bin" ] ||
   { echo "agent: no Playwright chromium under $PLAYWRIGHT_ROOT" >&2; exit 1; }
 
-origin="http://${vm_ip}:${demo_port}"
-# The JS demo is on the default port: keep the origin bare (http://ip, not
-# http://ip:80) — the treated-secure origin must match the address bar.
-[ "$demo_port" = 80 ] && origin="http://${vm_ip}"
+# --- treated-secure origin: explicit override first (the orchestrator
+# passes the public IP it dialed), else IMDS (non-routable from outside),
+# else the first private address (VM-to-VM over the vnet).
+origin=${2:-}
+if [ -z "$origin" ]; then
+  vm_ip=$(curl -fsS -m 5 -H Metadata:true \
+    'http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-02-01&format=text' \
+    || true)
+  [ -n "$vm_ip" ] || vm_ip=$(hostname -I | awk '{print $1}')
+  [ -n "$vm_ip" ] || { echo "agent: cannot determine this VM's IP" >&2; exit 1; }
+  origin="http://${vm_ip}:${demo_port}"
+  # The JS demo is on the default port: keep the origin bare (http://ip, not
+  # http://ip:80) — the treated-secure origin must match the address bar.
+  [ "$demo_port" = 80 ] && origin="http://${vm_ip}"
+fi
 
 # --- CDP relay: 0.0.0.0:9223 -> 127.0.0.1:9222 (see header comment).
 node "$OPT_ROOT/src/e2e/scripts/cdp-relay.mjs" 0.0.0.0 9223 9222 &

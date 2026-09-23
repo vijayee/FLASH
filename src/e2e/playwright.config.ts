@@ -32,7 +32,10 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'runs/report' }]],
   // Opt-OUT tagging: every spec runs by default, so a title forgetting
   // `@local` still executes instead of silently vanishing from a green run.
-  // @geo specs drive real Azure-region latency and are ignored unless the
-  // orchestrator opts in via E2E_GEO.
-  testIgnore: process.env.E2E_GEO ? [] : /@geo/,
+  // @geo specs drive REAL Azure-region latency and are ignored unless the
+  // orchestrator opts in via E2E_GEO. NOTE: testIgnore matches file PATHS,
+  // not titles (verified: a /@geo/ title regex never excludes anything) —
+  // so the exclusion is by spec file here, and geo.spec.ts additionally
+  // carries a title-level test.skip guard for direct invocations.
+  testIgnore: process.env.E2E_GEO ? [] : /geo\.spec\.ts/,
 });
