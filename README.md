@@ -63,7 +63,7 @@ cd src/dart/example && flutter pub get && flutter run -d chrome
 Using the library directly:
 
 ```javascript
-import { MeridianNode, MERIDIAN_CONFIG } from 'meridian-webrtc';
+import { MeridianNode, MERIDIAN_CONFIG } from 'flash-webrtc';
 
 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 const node = new MeridianNode(crypto.randomUUID(), null, MERIDIAN_CONFIG);
@@ -74,7 +74,7 @@ if (result.closestPeerId) await node.establishMediaStream(result.closestPeerId);
 ```
 
 ```dart
-import 'package:meridian_webrtc/meridian_webrtc.dart';
+import 'package:flash_webrtc/flash_webrtc.dart';
 
 final node = MeridianNode(peerId: uuidV4());
 await node.initialize('ws://localhost:8080', mediaStream: stream);

@@ -1,4 +1,4 @@
-# meridian-webrtc
+# flash-webrtc
 
 Browser library for **FLASH** — peer-to-peer video/audio streaming built on the [Meridian](https://github.com/vijayee/FLASH) overlay over standard WebRTC. No media servers: peers organize into latency-ordered multi-resolution rings, discover each other by gossip, and route closest-peer / central-leader / multi-constraint queries by direct latency measurement.
 

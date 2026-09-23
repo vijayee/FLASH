@@ -8,13 +8,13 @@ A JavaScript twin (`flash-webrtc` on npm) speaks the same wire protocol, so Flut
 
 ```yaml
 dependencies:
-  meridian_webrtc:
+  flash_webrtc:
 ```
 
 ## Usage
 
 ```dart
-import 'package:meridian_webrtc/meridian_webrtc.dart';
+import 'package:flash_webrtc/flash_webrtc.dart';
 
 final node = MeridianNode(peerId: uuidV4());
 await node.initialize('wss://your-signaling-server', mediaStream: stream);
