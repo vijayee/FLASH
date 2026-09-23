@@ -99,7 +99,20 @@ if (result.closestPeerId != null) {
 
 ## Status
 
-Both libraries implement the full specification (overlay, query routing, ring optimization, supernode election + Raft consensus, streaming, failure recovery) and are covered by behavioral test suites — 60 vitest tests for the JS library, 57 Flutter tests for the Dart package, 14 for the signaling server. The two implementations are wire-compatible: peers in either language interoperate through the same signaling server. What remains untested by automation is a live multi-peer session in real browsers (see the [end-to-end testing notes](docs/FLASH%20Javascript.md#12-implementation-order-recommended)); TURN credentials are not configured, so only STUN traversal is exercised.
+Both libraries implement the full specification (overlay, query routing, ring optimization, supernode election + Raft consensus, streaming, failure recovery) and are covered by behavioral test suites — 60 vitest tests for the JS library, 57 Flutter tests for the Dart package, 15 for the signaling server. The two implementations are wire-compatible: peers in either language interoperate through the same signaling server.
+
+Beyond unit and behavioral tests, the [`src/e2e`](src/e2e/README.md) harness drives real browser peers through a live overlay — 31 tests total: 21 local (peers in Linux network namespaces under `tc netem`, so latency is scripted and deterministic) and 10 geo tests against VMs in three Azure regions. Verified on that infrastructure:
+
+- Measured cross-region RTTs (134ms US↔Sweden, 255ms Sweden↔Korea) place peers in the rings the spec predicts — the 255ms pair lands in ring 8
+- `findClosestNode` returns the geographically-correct peer from every origin, including across the JS↔Dart wire
+- Media flows between peers on separate continents (srflx↔srflx, measured 156ms pair RTT), and through a forced-relay path when direct UDP is blocked (coturn TURN server, srflx↔relay pairs)
+- A native Flutter desktop peer (real `flutter_webrtc` transport) joins the overlay, is discovered by browser peers, and receives media
+- Supernode election selects the average-RTT minimizer; killing the supernode triggers re-election among survivors within one gossip period
+- Every run leaves per-peer state/wire histories, ICE candidate-pair stats, and signaling logs in `src/e2e/runs/` for post-mortem debugging
+
+Remaining untested by automation: glare over live ICE races beyond the unit-level tie-break tests, and media re-transmission beyond the SFU's signal-level forwarding (per spec §6.2).
+
+Demo pages also carry test affordances useful when experimenting: `?wirelog=1` records every DataChannel + signaling message, `?gossipMs`/`?stun`/`?mediaSrc`/`?turn=<url>,<user>,<cred>` override the config, and `window.__meridian.state()` exposes the overlay's live view (rings, RTTs, streams) from the browser console.
 
 ## Documentation
 
