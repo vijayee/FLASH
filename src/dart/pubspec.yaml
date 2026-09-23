@@ -1,6 +1,6 @@
 name: flash_webrtc
 description: P2P video/audio streaming using the Meridian overlay over WebRTC.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/vijayee/FLASH
 issue_tracker: https://github.com/vijayee/FLASH/issues
 topics:
