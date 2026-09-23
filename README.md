@@ -22,8 +22,8 @@ Everything runs in the browser (JavaScript) or natively in a Flutter app (Dart) 
 
 | Path | What it is |
 |---|---|
-| [`src/js`](src/js) | **`meridian-webrtc`** — the browser library. Plain ES modules, no build step. |
-| [`src/dart`](src/dart) | **`meridian_webrtc`** — the Flutter/Dart library on [`flutter_webrtc`](https://pub.dev/packages/flutter_webrtc). Includes a minimal example app. |
+| [`src/js`](src/js) | **[`flash-webrtc`](https://www.npmjs.com/package/flash-webrtc)** — the browser library. Plain ES modules, no build step. |
+| [`src/dart`](src/dart) | **[`flash_webrtc`](https://pub.dev/packages/flash_webrtc)** — the Flutter/Dart library on [`flutter_webrtc`](https://pub.dev/packages/flutter_webrtc). Includes a minimal example app. |
 | [`src/signaling-server`](src/signaling-server) | The minimal WebSocket relay: peer registration, peer list bootstrap, and SDP/ICE forwarding. It never touches media or overlay traffic. |
 
 ## How the overlay works
