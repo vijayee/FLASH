@@ -2,34 +2,94 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Meridian-WebRTC demo</title>
+    <title>flash-webrtc demo</title>
     <style>
       body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 60rem; }
       video { width: 240px; margin: 0.25rem; background: #222; }
       pre { background: #f4f4f4; padding: 0.5rem; max-height: 12rem; overflow: auto; }
       fieldset { border: 1px solid #ccc; margin-bottom: 0.5rem; }
+      .hint { color: #555; font-size: 0.85rem; margin: 0.25rem 0; }
+      table { border-collapse: collapse; font-size: 0.85rem; }
+      th, td { border: 1px solid #ccc; padding: 0.15rem 0.5rem; text-align: left; }
+      #config-panel { border: 1px solid #ccc; margin-bottom: 0.5rem; padding: 0.25rem 0.5rem; }
+      #config-panel summary { cursor: pointer; font-weight: 600; }
+      .config-row { display: flex; gap: 0.5rem; align-items: baseline; margin: 0.15rem 0; }
+      .config-row label { flex: 0 0 16rem; font-size: 0.85rem; }
+      .config-row input { width: 9rem; }
+      .config-row .what { flex: 1; color: #555; font-size: 0.8rem; }
     </style>
   </head>
   <body>
-    <h1>Meridian node</h1>
+    <h1>flash-webrtc node (Meridian overlay)</h1>
     <p>
       Peer id: <code id="peer-id">(not connected)</code>
       &mdash; <span id="status">idle</span>
     </p>
+
+    <details id="config-panel" open>
+      <summary>Overlay configuration (MERIDIAN_CONFIG)</summary>
+      <p class="hint">
+        Every knob of the overlay's spec &sect;2.1 constants. Values are
+        prefilled from the page's URL params (gossipMs / stun / turn /
+        mediaSrc), applied when you press Connect, and locked afterwards:
+        reload the page to change them.
+      </p>
+      <div id="config-fields"></div>
+      <p class="hint">
+        Empty STUN falls back to the library default; an empty TURN list means
+        no relay. The media source row is display-only &mdash; it is chosen by
+        the ?mediaSrc= URL param.
+      </p>
+    </details>
+
     <fieldset>
       <legend>Connect</legend>
       <input id="signal-url" size="40" value="ws://localhost:8080" />
       <button id="connect">Connect</button>
       <button id="disconnect" disabled>Disconnect</button>
+      <p class="hint">
+        The signaling server is only a rendezvous: peers swap each other's
+        contact info through it, then all media and data flow peer-to-peer
+        over WebRTC.
+      </p>
     </fieldset>
+
     <fieldset>
       <legend>Actions</legend>
       <button id="find" disabled>Find closest node</button>
       <button id="stream" disabled>Stream to peer</button>
+      <p class="hint">
+        "Find closest node" floods a routed query over the rings and returns
+        the lowest-RTT peer that answers (up to maxHops hops, accepted once
+        the routeAcceptanceThreshold fraction of queried rings replied).
+        "Stream to peer" asks that peer for its media and renders it below.
+        Both take a full peer id.
+      </p>
     </fieldset>
+
+    <fieldset>
+      <legend>Peer inspector</legend>
+      <p class="hint">
+        Live view of the node's knownPeers table, sorted by ring: ring 0 is
+        the closest latency band, outer rings widen by the multiplicative
+        factor. Refreshes every second.
+      </p>
+      <table id="peer-table">
+        <thead>
+          <tr><th>Peer</th><th>RTT (ms)</th><th>Ring</th><th>Status</th></tr>
+        </thead>
+        <tbody id="peer-rows"></tbody>
+      </table>
+    </fieldset>
+
     <div id="videos">
       <video id="local" autoplay playsinline muted loop></video>
     </div>
+    <p class="hint">
+      The local preview (or the ?mediaSrc= looping file) plus every stream
+      received from peers render above; the event log below records
+      handshakes, elections, stream lifecycle and failures.
+    </p>
     <pre id="log"></pre>
     <script type="module" src="./main.js"></script>
   </body>

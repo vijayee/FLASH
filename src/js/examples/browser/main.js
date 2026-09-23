@@ -40,14 +40,140 @@ const turnOverride =
   turnFields && turnFields[0] && turnFields[1] && turnFields[2]
     ? { urls: turnFields[0], username: turnFields[1], credential: turnFields[2] }
     : null;
-const DEMO_CONFIG = {
-  ...MERIDIAN_CONFIG,
-  ...(Number.isFinite(gossipMsParam) && gossipMsParam > 0
-    ? { gossipPeriodMs: gossipMsParam }
-    : {}),
-  ...(stunOverride ? { stunServers: stunOverride } : {}),
-  ...(turnOverride ? { turnServers: [turnOverride] } : {}),
-};
+
+// --- Overlay configuration panel -------------------------------------------
+// The demo exposes the FULL MERIDIAN_CONFIG (src/js/src/config.js) as the
+// collapsible #config-panel in index.html. The URL params above remain the
+// source of truth for the e2e affordances: their parsed values pre-fill the
+// panel inputs, and Connect builds the config FROM the inputs, so an e2e
+// URL (?gossipMs=…&stun=…&turn=……) yields exactly the config the raw param
+// parsing used to produce. Invalid values fall back to the library default.
+// Empty stun means the library default list; empty turn means no relay.
+const CONFIG_FIELDS = [
+  ['ringsPerNode', 'Rings per node', 'int',
+    'Latency-ordered rings this peer keeps; more rings = finer resolution, more connections.'],
+  ['nodesPerRing', 'Nodes per ring', 'int',
+    'Primary members stored per ring; extras degrade to secondary candidates.'],
+  ['secondaryCandidates', 'Secondary candidates', 'int',
+    'Backup members kept per ring for failover when a primary leaves.'],
+  ['innermostRingRadius', 'Innermost ring radius (ms)', 'float',
+    'RTT radius of ring 0 — the closest-latency band a peer maintains.'],
+  ['ringMultiplicativeFactor', 'Ring factor (r)', 'float',
+    'Each outer ring\'s RTT radius is the previous ring\'s times this.'],
+  ['routeAcceptanceThreshold', 'Acceptance threshold (β)', 'float',
+    'Fraction of queried rings that must answer before a routed query\'s result is accepted.'],
+  ['probeTimeoutFactor', 'Probe timeout factor (ε)', 'float',
+    'An RTT probe times out at this multiple of the peer\'s last measured RTT.'],
+  ['gossipPeriodMs', 'Gossip period (ms)', 'int',
+    'Interval between gossip exchanges; smaller values converge faster (e2e overrides this).'],
+  ['ringReplacementPeriodMs', 'Ring replacement period (ms)', 'int',
+    'Interval between maintenance sweeps that replace dead or slow ring members.'],
+  ['maxEphemeralConnections', 'Max ephemeral connections', 'int',
+    'Cap on short-lived probe connections opened for RTT measurement.'],
+  ['maxHops', 'Max query hops', 'int',
+    'Hop cap for routed closest-node / central-leader queries.'],
+  ['ephemeralProbeTimeoutMs', 'Ephemeral probe timeout (ms)', 'int',
+    'Timeout for one ephemeral probe connection.'],
+  ['queryTimeoutMs', 'Query timeout (ms)', 'int',
+    'Overall timeout for closest-node / central-leader queries.'],
+];
+
+// Panel pre-fill: library defaults, overridden by the URL params above.
+const configPrefill = Object.fromEntries(
+  CONFIG_FIELDS.map(([key]) => [key, MERIDIAN_CONFIG[key]])
+);
+if (Number.isFinite(gossipMsParam) && gossipMsParam > 0) {
+  configPrefill.gossipPeriodMs = gossipMsParam;
+}
+configPrefill.stun = stunOverride
+  ? stunParam
+  : MERIDIAN_CONFIG.stunServers.join(',');
+configPrefill.turn = turnOverride ? turnParam : '';
+
+function addConfigRow(container, id, label, value, hint, disabled) {
+  const row = document.createElement('div');
+  row.className = 'config-row';
+  const labelEl = document.createElement('label');
+  labelEl.htmlFor = id;
+  labelEl.textContent = label;
+  const input = document.createElement('input');
+  input.id = id;
+  input.value = value;
+  input.disabled = disabled === true;
+  const what = document.createElement('span');
+  what.className = 'what';
+  what.textContent = hint;
+  row.append(labelEl, input, what);
+  container.append(row);
+}
+
+function buildConfigPanel() {
+  const container = $('config-fields');
+  for (const [key, label, , hint] of CONFIG_FIELDS) {
+    addConfigRow(
+      container,
+      `config-${key}`,
+      label,
+      String(configPrefill[key]),
+      hint
+    );
+  }
+  addConfigRow(
+    container,
+    'config-stun',
+    'STUN servers',
+    configPrefill.stun,
+    'Comma-separated STUN URLs for public-candidate discovery.'
+  );
+  addConfigRow(
+    container,
+    'config-turn',
+    'TURN relay (url,username,credential)',
+    configPrefill.turn,
+    'One long-term-credential TURN entry for restrictive NATs; empty = no relay.'
+  );
+  addConfigRow(
+    container,
+    'config-mediaSrc',
+    'Media source (uplink)',
+    mediaSrcParam || '(getUserMedia / fake device)',
+    'Display-only: chosen by the ?mediaSrc= URL param (looping file uplink).',
+    true
+  );
+}
+buildConfigPanel();
+
+// Reads the (pre-filled) panel back into a MERIDIAN_CONFIG override set.
+// Invalid or empty entries keep the library default, so hand-edited garbage
+// can never poison the node.
+function readConfigFromPanel() {
+  const config = { ...MERIDIAN_CONFIG };
+  for (const [key, , type] of CONFIG_FIELDS) {
+    const raw = $(`config-${key}`).value.trim();
+    if (!raw) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+    if (type === 'int' && !Number.isInteger(value)) continue;
+    config[key] = value;
+  }
+  const stunRaw = $('config-stun').value.trim();
+  if (stunRaw) {
+    config.stunServers = stunRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  const turnRaw = $('config-turn').value.trim();
+  if (turnRaw) {
+    const fields = turnRaw.split(',').map((s) => s.trim());
+    if (fields[0] && fields[1] && fields[2]) {
+      config.turnServers = [
+        { urls: fields[0], username: fields[1], credential: fields[2] },
+      ];
+    }
+  }
+  return config;
+}
 
 // --- e2e wire log (?wirelog=1) -------------------------------------------
 // Optional bounded record of every DataChannel send/receive and signaling
@@ -152,6 +278,37 @@ function refreshStatus() {
     `knownPeers: ${node.knownPeers.size}, ` +
     `ring slots: ${ringOccupancy()}, ` +
     `supernode: ${node.isSupernode ? 'yes' : 'no'}`;
+  renderPeerInspector();
+}
+
+// Peer inspector (#peer-table): the node's knownPeers projected per row —
+// short id, RTT, ring index (ring 0 = closest band), handshake status —
+// sorted by ring then RTT. Fed from the same 1s poll as the status line.
+function renderPeerInspector() {
+  const tbody = $('peer-rows');
+  tbody.textContent = '';
+  const peers = [...node.knownPeers.entries()].sort(
+    (a, b) =>
+      (a[1].ringIndex ?? Number.MAX_SAFE_INTEGER) -
+        (b[1].ringIndex ?? Number.MAX_SAFE_INTEGER) ||
+      (a[1].rtt ?? Number.MAX_SAFE_INTEGER) -
+        (b[1].rtt ?? Number.MAX_SAFE_INTEGER)
+  );
+  for (const [id, peer] of peers) {
+    const row = document.createElement('tr');
+    const cells = [
+      id.slice(0, 8),
+      peer.rtt == null ? '?' : Math.round(peer.rtt),
+      peer.ringIndex == null ? '-' : peer.ringIndex,
+      peer.status,
+    ];
+    for (const cell of cells) {
+      const td = document.createElement('td');
+      td.textContent = String(cell);
+      row.append(td);
+    }
+    tbody.append(row);
+  }
 }
 
 // Remote MediaStreams surface on node.activeStreams (populated by the
@@ -183,6 +340,13 @@ function setConnected(connected) {
   $('disconnect').disabled = !connected;
   $('find').disabled = !connected;
   $('stream').disabled = !connected;
+  // The overlay config is baked into the live node: once a node exists the
+  // panel is locked until a page reload (the hint says so).
+  if (connected) {
+    for (const input of document.querySelectorAll('#config-fields input')) {
+      input.disabled = true;
+    }
+  }
 }
 
 function wireHandlers() {
@@ -285,7 +449,7 @@ async function connect() {
     }
   }
 
-  node = new MeridianNode(peerId, null, DEMO_CONFIG);
+  node = new MeridianNode(peerId, null, readConfigFromPanel());
   wireHandlers();
   installWireLog(node);
   await node.initialize(url, uplink);
@@ -313,6 +477,7 @@ function disconnect() {
   $('local').removeAttribute('src');
   $('peer-id').textContent = '(not connected)';
   $('status').textContent = 'idle';
+  $('peer-rows').textContent = '';
   setConnected(false);
   log(`disconnected ${peerId}`);
 }

@@ -66,6 +66,17 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   //   ?gossipMs=<n> (n > 0) overrides MeridianConfig.gossipPeriod,
   //   ?mediaSrc=<url> swaps the getUserMedia uplink for a looping <video>
   //     playing the file (captureStream) — see uplink_web.dart.
+  // Task 2 (comprehensive config): the remaining MERIDIAN_CONFIG knobs are
+  // reachable two ways —
+  //   ?config=<json> a JSON blob of overrides keyed by the published JS
+  //     package's MERIDIAN_CONFIG names (e.g. {"gossipPeriodMs": 2000,
+  //     "ringsPerNode": 5}), the simplest cross-language way to hand one
+  //     config to both demo flavors; unknown keys and malformed values are
+  //     ignored, so the library defaults survive,
+  //   ?turn=url,username,credential appends one long-term-credential TURN
+  //     relay, exactly like the JS demo's affordance.
+  // Explicit params (stun/gossipMs/turn) win over the blob; everything is
+  // applied BEFORE MeridianNode construction.
   // Parsed only on http(s) bases: Uri.base on native targets is not a
   // browser URL, and the desktop peer (Task 7) must keep its defaults.
   static Map<String, String> get _e2eParams {
@@ -90,22 +101,167 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
   late final MeridianConfig _config = _configFromParams();
 
   MeridianConfig _configFromParams() {
-    const base = MeridianConfig();
+    var config = _configFromBlob();
     final stun = _e2eParams['stun'];
     final gossipMs = int.tryParse(_e2eParams['gossipMs'] ?? '');
-    if (stun == null && gossipMs == null) return base;
+    final turn = _e2eParams['turn'];
+    if (stun == null && gossipMs == null && turn == null) return config;
     return MeridianConfig(
+      ringsPerNode: config.ringsPerNode,
+      nodesPerRing: config.nodesPerRing,
+      secondaryCandidates: config.secondaryCandidates,
+      innermostRingRadiusMs: config.innermostRingRadiusMs,
+      ringMultiplicativeFactor: config.ringMultiplicativeFactor,
+      routeAcceptanceThreshold: config.routeAcceptanceThreshold,
+      probeTimeoutFactor: config.probeTimeoutFactor,
+      gossipPeriod: (gossipMs == null || gossipMs <= 0)
+          ? config.gossipPeriod
+          : Duration(milliseconds: gossipMs),
+      ringReplacementPeriod: config.ringReplacementPeriod,
+      maxEphemeralConnections: config.maxEphemeralConnections,
       stunServers: stun == null
-          ? base.stunServers
+          ? config.stunServers
           : stun
               .split(',')
               .map((s) => s.trim())
               .where((s) => s.isNotEmpty)
               .toList(),
-      gossipPeriod: (gossipMs == null || gossipMs <= 0)
-          ? base.gossipPeriod
-          : Duration(milliseconds: gossipMs),
+      turnServers: turn == null
+          ? config.turnServers
+          : _turnEntry(turn) ?? config.turnServers,
+      maxHops: config.maxHops,
+      ephemeralProbeTimeout: config.ephemeralProbeTimeout,
+      queryTimeout: config.queryTimeout,
     );
+  }
+
+  /// The `?config=` JSON blob (see the params comment above), mapped onto
+  /// [MeridianConfig]. Anything missing or malformed keeps the library
+  /// default, so a partial blob is a valid override set.
+  MeridianConfig _configFromBlob() {
+    const base = MeridianConfig();
+    final blob = _e2eParams['config'];
+    if (blob == null) return base;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(blob);
+    } catch (_) {
+      return base;
+    }
+    if (decoded is! Map) return base;
+    // A typed local: closures (intField etc.) below don't inherit the `is
+    // Map` promotion of `decoded`.
+    final overrides = Map<Object?, Object?>.from(decoded);
+    int intField(String key, int fallback) {
+      final value = overrides[key];
+      return value is int ? value : fallback;
+    }
+
+    double doubleField(String key, double fallback) {
+      final value = overrides[key];
+      return value is num ? value.toDouble() : fallback;
+    }
+
+    int msField(String key, Duration fallback) {
+      final value = overrides[key];
+      return value is int && value > 0 ? value : fallback.inMilliseconds;
+    }
+
+    final stun = overrides['stunServers'];
+    return MeridianConfig(
+      ringsPerNode: intField('ringsPerNode', base.ringsPerNode),
+      nodesPerRing: intField('nodesPerRing', base.nodesPerRing),
+      secondaryCandidates:
+          intField('secondaryCandidates', base.secondaryCandidates),
+      // Both the JS demo's key (innermostRingRadius) and the Dart field
+      // name (innermostRingRadiusMs) are accepted.
+      innermostRingRadiusMs: doubleField(
+        'innermostRingRadiusMs',
+        doubleField('innermostRingRadius', base.innermostRingRadiusMs),
+      ),
+      ringMultiplicativeFactor: doubleField(
+        'ringMultiplicativeFactor',
+        base.ringMultiplicativeFactor,
+      ),
+      routeAcceptanceThreshold: doubleField(
+        'routeAcceptanceThreshold',
+        base.routeAcceptanceThreshold,
+      ),
+      probeTimeoutFactor:
+          doubleField('probeTimeoutFactor', base.probeTimeoutFactor),
+      gossipPeriod: Duration(
+        milliseconds: msField('gossipPeriodMs', base.gossipPeriod),
+      ),
+      ringReplacementPeriod: Duration(
+        milliseconds:
+            msField('ringReplacementPeriodMs', base.ringReplacementPeriod),
+      ),
+      maxEphemeralConnections:
+          intField('maxEphemeralConnections', base.maxEphemeralConnections),
+      stunServers: stun is List
+          ? [
+              for (final entry in stun)
+                if (entry is String) entry
+            ]
+          : base.stunServers,
+      turnServers: _turnList(overrides['turnServers'], base.turnServers),
+      maxHops: intField('maxHops', base.maxHops),
+      ephemeralProbeTimeout: Duration(
+        milliseconds:
+            msField('ephemeralProbeTimeoutMs', base.ephemeralProbeTimeout),
+      ),
+      queryTimeout: Duration(
+        milliseconds: msField('queryTimeoutMs', base.queryTimeout),
+      ),
+    );
+  }
+
+  /// One TURN entry from the `?turn=url,username,credential` param (the
+  /// shape the JS demo's affordance parses; TURN URLs contain no commas).
+  /// Returns null when the param is malformed, so defaults survive.
+  List<TurnServerConfig>? _turnEntry(String param) {
+    final fields = param.split(',').map((s) => s.trim()).toList();
+    if (fields.length < 3 ||
+        fields[0].isEmpty ||
+        fields[1].isEmpty ||
+        fields[2].isEmpty) {
+      return null;
+    }
+    return [
+      TurnServerConfig(
+        url: fields[0],
+        username: fields[1],
+        credential: fields[2],
+      ),
+    ];
+  }
+
+  /// `turnServers` entries from the `?config=` blob: either
+  /// `{"url": ..., "username": ..., "credential": ...}` maps or
+  /// "url,username,credential" strings; invalid entries are skipped.
+  List<TurnServerConfig> _turnList(
+    Object? raw,
+    List<TurnServerConfig> fallback,
+  ) {
+    if (raw is! List) return fallback;
+    final parsed = <TurnServerConfig>[];
+    for (final entry in raw) {
+      if (entry is Map) {
+        final url = entry['url'];
+        final username = entry['username'];
+        final credential = entry['credential'];
+        if (url is String && username is String && credential is String) {
+          parsed.add(
+            TurnServerConfig(
+                url: url, username: username, credential: credential),
+          );
+        }
+      } else if (entry is String) {
+        final single = _turnEntry(entry);
+        if (single != null) parsed.addAll(single);
+      }
+    }
+    return parsed;
   }
 
   // --- e2e action results (Task 6) -----------------------------------------
@@ -368,6 +524,13 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
     super.dispose();
   }
 
+  /// In-app guidance (mirrors the JS demo's one-liners): short, user-facing
+  /// explanations under each control.
+  Widget _guidance(String text) => Text(
+        text,
+        style: const TextStyle(fontSize: 12, color: Colors.black54),
+      );
+
   @override
   Widget build(BuildContext context) {
     final node = _node;
@@ -393,6 +556,11 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
                         'supernode: ${node.isSupernode ? 'yes' : 'no'}',
                       ),
                       const SizedBox(height: 12),
+                      _guidance(
+                        'Peers meet through the signaling server, then all '
+                        'media and data flow peer-to-peer; the rings sort '
+                        'them by RTT (ring 0 = closest).',
+                      ),
                       Row(
                         children: [
                           Expanded(
@@ -410,6 +578,12 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
                           ),
                         ],
                       ),
+                      _guidance(
+                        'Floods a routed query over the rings and returns the '
+                        'lowest-RTT peer that answers (up to maxHops hops, '
+                        'accepted once routeAcceptanceThreshold of the '
+                        'queried rings replied).',
+                      ),
                       Row(
                         children: [
                           Expanded(
@@ -426,6 +600,10 @@ class _MeridianDemoPageState extends State<MeridianDemoPage> {
                             child: const Text('Stream to peer'),
                           ),
                         ],
+                      ),
+                      _guidance(
+                        'Asks that peer (a known peer id) for its media and '
+                        'renders the result below.',
                       ),
                       const SizedBox(height: 12),
                       SizedBox(

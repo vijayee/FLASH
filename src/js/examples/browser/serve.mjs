@@ -29,7 +29,11 @@ function isInside(base, pathname) {
 }
 
 async function serve(req, res) {
-  const path = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+  // Query strings carry the demo's config affordances (?wirelog=1,
+  // ?gossipMs=…): strip them before the path is resolved, and map the bare
+  // root to index.html (same normalization as src/e2e/scripts/serve.mjs).
+  const stripped = (req.url ?? '/').split('?')[0];
+  const path = stripped === '/' || stripped === '' ? '/index.html' : stripped;
   let pathname;
   try {
     pathname = decodeURIComponent(path);
